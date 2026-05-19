@@ -1,23 +1,46 @@
 # first run
 println("First file!")
 using Pkg
+using CSV
+using DataFrames
+using DelimitedFiles
+using Orchid
+using SparseArrays
 #installing ORCHID
 #Pkg.add(["CSV", "DataFrames"])
  #read in the toy data
-using CSV
-using DataFrames
+X = readdlm("toy_data/toy_incidence_matrix.csv", ',', Int)
+println(typeof(X))
+println(X)
+X_sparse = sparse(X) 
+results = hypergraph_curvatures(
+    Orchid.DisperseUnweightedClique,
+    Orchid.AggregateMean,
+    X_sparse,
+    0.01,
+    Orchid.CostOndemand
+)
+println(propertynames(results))
 
-# Read the TSV file into a DataFrame
-individual_hypergraph_df = CSV.read("toy_data/toy.ihg.tsv", DataFrame, delim='\t', header=false)
-# View the first few rows
-println(individual_hypergraph_df)
 
+using Dates
+using DelimitedFiles
 
+timestamp = Dates.format(Dates.now(), "yyyy-mm-dd_HH-MM-SS")
+output_dir = joinpath("orchid_output", timestamp)
+mkpath(output_dir)
 
-using Orchid
-#import Orchid: DisperseUnweightedClique, AggregationMax
-X = Matrix{Float64}(individual_hypergraph_df)
-print(X)
+for field in propertynames(results)
+    
+    file_path = joinpath(output_dir, "$(field).csv")
+    value = getproperty(results, field)
+    
+    try
+        writedlm(file_path, value, ',')
+    catch e
+        println("Warning: Could not save field '$field' as CSV. It might not be tabular data.")
+    end
+end
 
-Orchid.hypergraph_curvatures(Orchid.DisperseUnweightedClique, Orchid.AggregateMean, X, 0.01)
-#Orchid.hypergraph_curvatures
+#not saving edge curvature explicitly right now, but saving some outputs.
+println("Success! All array outputs saved as CSV files to: $output_dir")
