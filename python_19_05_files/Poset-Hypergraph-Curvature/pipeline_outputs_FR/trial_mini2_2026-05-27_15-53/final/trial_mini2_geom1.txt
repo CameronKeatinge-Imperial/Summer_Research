@@ -1,0 +1,1 @@
+pipeline_outputs\trial_mini2_2026-05-27_15-53\final\trial_mini2_geom4.txt	-1
