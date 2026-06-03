@@ -14,7 +14,7 @@ println(typeof(X))
 println(X)
 X_sparse = sparse(X) 
 results = hypergraph_curvatures(
-    Orchid.DisperseUnweightedClique,
+    Orchid.DisperseUnweightedStar,
     Orchid.AggregateMean,
     X_sparse,
     0.01,
