@@ -45,8 +45,8 @@ function convert_to_incidence_matrix(input_filepath::String, output_filepath::St
     println("Successfully saved the incidence matrix to: $output_filepath")
 end
 
-input_file = "toy_data/toy_hypernetwork.csv"
+input_file = "toy_data/disease-gene.csv"
 #input_file = "toy_data/reconstructed_hypernetwork.csv" -- works on the reconstructed file.
-output_file = "toy_data/toy_incidence_matrix.csv"
+output_file = "toy_data/disease_gene_output.csv"
 
 convert_to_incidence_matrix(input_file, output_file)
