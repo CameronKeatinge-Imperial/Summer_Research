@@ -5,6 +5,7 @@ from src2.data_object import MappingOfHyperedges
 from src2.algorithm_class import NetworkProcessor
 from src.data_processing import load_config
 import hypernetx as hnx
+import xgi
 # HyperNetX allows you to project to a standard bipartite or line graph
 def test_edge_removal(H):
     """
@@ -45,143 +46,98 @@ def test_edge_removal(H):
 
     return H
 
-def test_remove_and_partition(H):
+
+def test_sequential_component_tracking(H):
     """
-    Diagnostic test for hyperedge removal and connected components.
+    Sequentially removes edges one by one from the hypergraph and tracks 
+    how the number of connected components changes.
 
     Args:
-        H: hypergraph object
+        H: hypergraph object (xgi.Hypergraph)
 
     Returns:
-        Modified hypergraph after removing one edge
+        H_test: The modified (empty) hypergraph.
+        component_history: A list of integers representing the number of 
+                           components after each edge removal.
     """
+    print("\n========== SEQUENTIAL REMOVAL TEST ==========")
 
-    print("\n===== INITIAL STATE =====")
+    # Create a copy so we don't destroy the original hypergraph
+    H_test = H.copy()
+    
+    edges_to_remove = list(H_test.edges)
+    total_edges = len(edges_to_remove)
+    
+    print(f"Starting nodes: {H_test.num_nodes}")
+    print(f"Starting edges: {total_edges}")
 
-    edges_before = list(H.edges())
-    nodes_before = list(H.nodes())
+    if total_edges == 0:
+        print("No edges to remove.")
+        return H_test, []
 
-    print(f"Number of edges: {len(edges_before)}")
-    print(f"Edges: {edges_before}")
-    print(f"Number of nodes: {len(nodes_before)}")
-
-    components_before = list(H.connected_components())
-    print(f"Connected components before removal ({len(components_before)}):")
-    for c in components_before:
-        print(c)
-
-
-    if len(edges_before) == 0:
-        print("No edges found. Cannot test removal.")
-        return H
-
-
-    # Pick an edge to remove
-    edge_to_remove = edges_before[0]
-
-    print("\n===== REMOVING EDGE =====")
-    print(f"Removing: {edge_to_remove}")
-
-
-    # Perform removal
-    H_after = H.remove_edges(edge_to_remove)
-
-
-    print("\n===== AFTER REMOVAL =====")
-
-    edges_after = list(H_after.edges())
-
-    print(f"Number of edges: {len(edges_after)}")
-    print(f"Edges: {edges_after}")
-
-
-    # Check if removal worked
-    if edge_to_remove in edges_after:
-        print("❌ FAIL: Edge still exists after removal")
-    else:
-        print("✅ PASS: Edge removed successfully")
-
-
-    # Compare edge counts
-    if len(edges_after) == len(edges_before) - 1:
-        print("✅ PASS: Edge count decreased by exactly one")
-    else:
-        print(
-            f"⚠️ WARNING: Expected {len(edges_before)-1} edges, "
-            f"got {len(edges_after)}"
-        )
-
-
-    # Check connectivity
-    print("\n===== CONNECTED COMPONENTS AFTER REMOVAL =====")
-
-    components_after = list(H_after.connected_components())
-
-    print(
-        f"Connected components after removal ({len(components_after)}):"
-    )
-
-    for c in components_after:
-        print(c)
-
-
-    # Check if components changed
-    if components_before == components_after:
-        print("⚠️ WARNING: Components did not change")
-    else:
-        print("✅ Components changed after removal")
-
-
-    return H_after
-
-def test_remove_all_edges(H):
-    """
-    Removes every hyperedge and checks behaviour.
-    """
-
-    print("Initial number of edges:", len(list(H.edges())))
-    print("Initial number of nodes:", len(list(H.nodes())))
-
-    # Remove all edges
-    for e in list(H.edges()):
-        H = H.remove_edges([e])
-
-    print("\nAfter removal:")
-    print("Edges:", list(H.edges()))
-    print("Nodes:", list(H.nodes()))
-
-    # Try connected components
+    # Get baseline components before any removal
     try:
-        components = list(H.connected_components())
+        baseline_components = len(list(xgi.connected_components(H_test)))
+        print(f"Initial connected components: {baseline_components}\n")
+    except Exception as e:
+        print("Initial connected_components failed:", e)
+        return H_test, []
 
-        print("Number of components:", len(components))
-        for c in components:
-            print(c)
+    component_history = []
 
-    except Exception as error:
-        print("connected_components failed:")
-        print(error)
+    # --------------------------------------------------
+    # SEQUENTIAL REMOVAL LOOP
+    # --------------------------------------------------
+    print("Beginning sequential removal...")
+    
+    for i, edge in enumerate(edges_to_remove, start=1):
+        # 1. Remove the edge
+        H_test.remove_edge(edge)
+        
+        # 2. Calculate the new number of components
+        try:
+            current_components = len(list(xgi.connected_components(H_test)))
+            component_history.append(current_components)
+            
+            # Print update (you might want to comment this out for very large networks)
+            print(f"Removed edge '{edge}' ({i}/{total_edges}) | Components: {current_components}")
+            
+        except Exception as e:
+            print(f"Failed to calculate components after removing '{edge}': {e}")
+            break
 
-        print("\nLikely cause:")
-        print("Hypergraph has nodes but no edges.")
+    # --------------------------------------------------
+    # FINAL VERIFICATION
+    # --------------------------------------------------
+    print("\n========== TEST COMPLETE ==========")
+    print(f"Final edges remaining: {H_test.num_edges}")
+    print(f"Final isolated nodes remaining: {H_test.num_nodes}")
+    
+    if component_history:
+        print(f"Components grew from {baseline_components} -> {component_history[-1]}")
+        # Note: In a fully disconnected XGI graph, the number of components 
+        # should exactly equal the number of nodes!
+        if component_history[-1] == H_test.num_nodes:
+            print("SUCCESS: Final component count perfectly matches total isolated nodes.")
 
-    return H
+    return H_test, component_history
 
 def test_hyperedge_removal(H):
     """
-    Full diagnostic test for hyperedge removal and connected components.
+    Full diagnostic test for hyperedge removal and connected components in XGI.
 
     Args:
-        H: hypergraph object (e.g. xgi.Hypergraph)
+        H: hypergraph object (xgi.Hypergraph)
 
     Returns:
         Modified hypergraph after removing all edges.
     """
 
     print("\n========== INITIAL STATE ==========")
-
-    edges_before = list(H.edges())
-    nodes_before = list(H.nodes())
+    
+    # XGI uses properties (.edges, .nodes) rather than methods
+    edges_before = list(H.edges)
+    nodes_before = list(H.nodes)
 
     print(f"Number of edges: {len(edges_before)}")
     print(f"Number of nodes: {len(nodes_before)}")
@@ -198,34 +154,33 @@ def test_hyperedge_removal(H):
     print("\n========== SINGLE EDGE REMOVAL ==========")
 
     edge_to_remove = edges_before[0]
-
     print("Removing:", edge_to_remove)
 
-    H_test = H.remove_edges([edge_to_remove])
+    # Create a copy so we don't destroy the original hypergraph passed into the test
+    H_test = H.copy()
+    
+    # XGI modifies in-place using remove_edge() for a single ID
+    H_test.remove_edge(edge_to_remove)
 
-    edges_after = list(H_test.edges())
+    edges_after = list(H_test.edges)
 
     print(f"Edges before: {len(edges_before)}")
     print(f"Edges after: {len(edges_after)}")
-
 
     if edge_to_remove not in edges_after:
         print("PASS: Edge removed correctly")
     else:
         print("FAIL: Edge still exists")
 
-
     # Check components after single removal
     print("\nConnected components after removing one edge:")
 
     try:
-        components = list(H_test.connected_components())
-
+        # In XGI, algorithms are called from the xgi namespace
+        components = list(xgi.connected_components(H_test))
         print(f"Number of components: {len(components)}")
-
         for c in components:
             print(c)
-
     except Exception as e:
         print("connected_components failed:")
         print(e)
@@ -238,21 +193,20 @@ def test_hyperedge_removal(H):
     print("\n========== REMOVE ALL EDGES ==========")
 
     H_empty = H_test
-
-    remaining_edges = list(H_empty.edges())
+    remaining_edges = list(H_empty.edges)
 
     print(f"Removing {len(remaining_edges)} remaining edges")
 
-    for e in remaining_edges:
-        H_empty = H_empty.remove_edges([e])
+    # XGI provides remove_edges_from() for batch removal in-place
+    H_empty.remove_edges_from(remaining_edges)
 
-
-    final_edges = list(H_empty.edges())
-    final_nodes = list(H_empty.nodes())
+    final_edges = list(H_empty.edges)
+    final_nodes = list(H_empty.nodes)
 
     print("\nAfter removing all edges:")
     print("Edges:", final_edges)
-    print("Nodes:", final_nodes)
+    # Unlike HNX, XGI keeps isolated nodes. This will match the initial node count.
+    print(f"Nodes: {len(final_nodes)} isolated nodes remain.")
 
 
     # --------------------------------------------------
@@ -262,24 +216,20 @@ def test_hyperedge_removal(H):
     print("\n========== FINAL CONNECTIVITY TEST ==========")
 
     if len(final_nodes) == 0:
-        print("Hypergraph is completely empty.")
-        print("connected_components cannot run on empty graph.")
-
+        print("Hypergraph is completely empty (no nodes).")
     else:
         try:
-            components = list(H_empty.connected_components())
-
-            print(
-                f"Connected components: {len(components)}"
-            )
-
-            for c in components:
-                print(c)
+            # This will now successfully return a component for every isolated node
+            components = list(xgi.connected_components(H_empty))
+            print(f"Connected components: {len(components)}")
+            # Commenting out the print loop here so it doesn't spam the console 
+            # if you have thousands of isolated nodes.
+            # for c in components:
+            #     print(c)
 
         except Exception as e:
             print("connected_components failed:")
             print(e)
-
 
     print("\n========== TEST COMPLETE ==========")
 
@@ -293,9 +243,9 @@ if __name__ == "__main__":
     paths_obj.files_for_hypernetwork()
 
     hypernetwork_obj = HypernetworkObject(paths_obj.files_for_hypernetwork())
-    bipartite_graph = hypernetwork_obj.initialHypernetwork.bipartite()
-    is_connected = nx.is_connected(bipartite_graph)
-    print(f"Is the hypernetwork fully connected? {is_connected}")
+    #bipartite_graph = hypernetwork_obj.initialHypernetwork.bipartite()
+    #is_connected = nx.is_connected(bipartite_graph)
+    #print(f"Is the hypernetwork fully connected? {is_connected}")
 
     test_hyperedge_removal(hypernetwork_obj.initialHypernetwork)
-    #print(hnx.__version__)
+    test_sequential_component_tracking(hypernetwork_obj.initialHypernetwork)

@@ -23,12 +23,12 @@ from src2.frDataObject import FormanRicciDataObject
 # This acts as both your High-Level Method and your "Interface"
 class algorithmClass():
     
-    def __init__(self,target_num_clusters=100,max_iterations_multiple=5,modularity_equ='linear'):
+    def __init__(self,target_num_clusters=5,max_iterations=500,modularity_equ='linear'):
          #all the configurations here
          self.modularity_equ = modularity_equ
-         self.max_iterations_multiple = max_iterations_multiple
          self.target_num_clusters = target_num_clusters
-         self.max_iter = self.target_num_clusters * self.max_iterations_multiple
+         self.max_iter = max_iterations
+         self.maximum_clusters = self.target_num_clusters * 4 # can change the 4 to a paramet
 
     def perform_algorithm(self,config_obj) -> Any:
             print("Starting training process...")
@@ -44,18 +44,20 @@ class algorithmClass():
             #my_data.model_parameters
             terminate_condition = False
             for i in range(self.max_iter):
-                print(f"iteration ", i)
-                if (i == 0):
-                    my_data.initialise_curvature()  # initialise curvature of network
-                else:
-                    my_data.recalculate_curvature()
-                terminate_condition = my_data.hyperedge_removal()
-                if terminate_condition == True:
-                    break
-                my_data.assess_clustering()
+                if my_data.number_of_clusters < self.maximum_clusters:
+                    print(f"iteration ", i)
+                    print(f"number_of_clusters ", my_data.number_of_clusters)
+                    if (i == 0):
+                        my_data.initialise_curvature()  # initialise curvature of network
+                    else:
+                        my_data.recalculate_curvature()
+                    terminate_condition = my_data.hyperedge_removal()
+                    if terminate_condition == True:
+                        break
+                    my_data.assess_clustering(self.target_num_clusters)
                 
             print(f"Best modularity:", my_data.best_modularity)
-            #print(f"Best partition:", my_data.best_partition)
+            print(f"Best partition:", my_data.best_partition)
             return my_data.best_partition
     
 

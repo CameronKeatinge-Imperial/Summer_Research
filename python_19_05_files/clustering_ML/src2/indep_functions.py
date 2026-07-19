@@ -89,6 +89,7 @@ def n_step_greater_than_k_neighbourhood_nodes(graph, a, b, inner_set=None, centr
 
 def calculate_modularity_ext(hypergraph_object, current_partitions, modularity_param):
     '''
+    IF THIS FUNCTION USES A hnx OBJECT THAT COULD BE FINE, AS USES THE SAME ONE THROUGHOUT
     hypernetwork is HyperNetX object
     options of wdc=strict,majority,linear - make this a config val
     '''
@@ -105,7 +106,7 @@ def calculate_modularity_ext(hypergraph_object, current_partitions, modularity_p
     
     chosen_wdc_function = param_mapping[modularity_param]
     
-    print(f"partition", current_partitions)
+    #print(f"partition", current_partitions)
     modularity_score = hmod.modularity(hypergraph_object, current_partitions, wdc=chosen_wdc_function)
-    print(f"modularity_score in external function",modularity_score)
+    #print(f"modularity_score in external function",modularity_score)
     return modularity_score

@@ -13,7 +13,7 @@ class DataObject(ABC):
         self.modularity_iters = []   # Tracks modularity over iterations
         self.best_partition = []
         self.best_modularity = -0.5 #lowest theoretical val
-
+        self.number_of_clusters = 1
         '''
         NEED CONFIGS
         self.modularity_equation = modularity_form
@@ -43,20 +43,23 @@ class DataObject(ABC):
     def hyperedge_removal(self):
         pass
 
-    def assess_clustering(self):
+    def assess_clustering(self, target_clusters_number):
         #self.network_obj.hyperedge_removal()
-        #
-        temp_partitions = self.hypernetwork_obj.get_partitions()
+        #temp_partitions = self.hypernetwork_obj.get_partitions()
+        
+        temp_partitions = self.hypernetwork_obj.run_iteration(target_clusters_number, size_by="nodes")
+        self.number_of_clusters = len(temp_partitions)
         temp_modularity = self.hypernetwork_obj.calculate_modularity(temp_partitions)
         self.review_new_modularity(temp_partitions, temp_modularity)   
+        
    
     def review_new_modularity(self,current_partition,current_modularity):
         self.modularity_iters.append(current_modularity)
         if current_modularity > self.best_modularity:
                 self.best_modularity = current_modularity
                 self.best_partition = current_partition
-                print(f"number of partitions", len(current_partition))
-                print(current_modularity)
+                #print(f"number of partitions", len(current_partition))
+                #print(current_modularity)
         
     @abstractmethod
     def construct_network_and_hypernetwork():
