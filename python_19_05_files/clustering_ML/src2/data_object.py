@@ -8,7 +8,6 @@ class DataObject(ABC):
     def __init__(self,hypernetwork_location,network_location,hyp_key_file):
         self.construct_network_and_hypernetwork(hypernetwork_location,network_location)
         self.hyperedge_queue = PriorityQueue()
-        self.labelMapping = MappingOfHyperedges(hyp_key_file)
         
         self.modularity_iters = []   # Tracks modularity over iterations
         self.best_partition = []
@@ -22,18 +21,9 @@ class DataObject(ABC):
         '''
 
 
+    @abstractmethod
     def initialise_curvature(self):
-        '''
-        Need to add that initialise curvature adds gets back all the curvatures of hyperedges
-        Then adds them to queue object
-        '''
-        #just creates curvature objects in network
-        initial_curv_vals = self.network_obj.initialise_curvature()
-        #the key is the nodes within the network
-        #print(self.labelMapping._to_spec2.keys())
-        self.is_hyp_node_removed = dict.fromkeys(self.labelMapping._to_spec2.keys(), False)
-        #NEED TO POPULATE
-        self.hyperedge_queue.push_mult(initial_curv_vals)
+        pass
         
     @abstractmethod
     def recalculate_curvature(self):
@@ -67,7 +57,10 @@ class DataObject(ABC):
         Need to ensure the bijection of hyperedges to network_object is understood
         '''
         pass
-    
+
+    @abstractmethod
+    def return_init_curvature():
+        pass
     #need to operate self.posetNetworkClass in here .. maybe in frDataObject
 
 

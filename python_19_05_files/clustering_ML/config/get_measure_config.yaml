@@ -1,0 +1,8 @@
+data:
+  data_source_type: "real_world_data"
+  hypernetwork_name: "senate-commitees"
+
+model:
+  measure: "curvature"
+  curvature_form: "Forman"
+  for_nodes: "Y"

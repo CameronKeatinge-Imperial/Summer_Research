@@ -1,0 +1,25 @@
+from src.data_processing import load_config
+from src.iterative_clustering import StatisticalModelTemplate
+from src.FR_subclass import FormanRicciClustering
+from src.data_processing import read_true_labels
+from src2.correlation_algo import measuresClass
+
+
+def main():
+    print("Starting ML Pipeline...")
+    #config info
+    config_path = "config/get_measure_config.yaml"
+    config = load_config(config_path)
+
+    print("Loading data...")
+
+    model = measuresClass()
+    hyperedge_dictionary, node_dictionary = model.performing_analysis(config)
+    hyperedge_dictionary = model.change_hyperedge_keys(hyperedge_dictionary)
+    print("Saving measure dictionary")
+
+    model.save_dataframes(config["model"]["measure"],edge_dict=hyperedge_dictionary,node_dict=node_dictionary)
+
+
+if __name__ == "__main__":
+    main()

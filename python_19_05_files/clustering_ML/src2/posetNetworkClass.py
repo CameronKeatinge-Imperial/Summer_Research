@@ -46,7 +46,8 @@ class PosetNetworkObject():
 
     def initialise_curvature(self):
         '''
-        Initialses for '''
+        Initialses for 
+        '''
         self.node_curvature, self.edge_curvature = initialise_curvatures_forman_ricci(self.initialPoset, self.edge_hashmap, self.node_hashmap)
         
         return self.nodes_curv_to_queue_pairs(self.initialPoset.nodes)
@@ -58,14 +59,20 @@ class PosetNetworkObject():
         self.last_node_removed = node
         print(f"self.network_obj.last_node_removed", node)
 
-
         topology_change_neighbourhood = n_step_neighbourhood_nodes(self.iterative_G,node,self.distance_topology_change)
         #in this case radius of size 1
         self.network_is_node_removed[self.node_hashmap[node]] = True
+        '''
         for node_p in topology_change_neighbourhood:
             if self.network_is_node_removed[self.node_hashmap[node_p]] == False:
                 #remove node -> node_p edge
                 self.iterative_G.remove_edge(node, node_p)
+        '''
+        edges_to_remove = [
+            (node, node_p) for node_p in topology_change_neighbourhood
+            if not self.network_is_node_removed[self.node_hashmap[node_p]]
+        ]
+        self.iterative_G.remove_edges_from(edges_to_remove)
 
     def update_neighbourhood_scores(self, node):
         '''
@@ -74,6 +81,10 @@ class PosetNetworkObject():
         '''
         # all the nearby nodes
         # can make this more efficient in one function and reducing computation
+        '''
+        CLAUDE CHANGES
+        MAYBE I ALSO NEED TO CHANGE SUCH FOR EDGES, DOESN'T WORK BY SUBNETWORK BUT WORKS OVER THE WHOLE NETOWKR
+        AS I THINK IT MIGHT BE QUITE OPTIMISED ANYWAY
         subgraph_update_full = n_step_neighbourhood_nodes(self.iterative_G, node, self.subgraph_update_radius)
         subgraph_update_edges = n_step_neighbourhood_nodes(self.iterative_G, node, self.distance_edge_curv_change)
         subgraph_update_nodes = n_step_neighbourhood_nodes(self.iterative_G, node, self.radius_for_node_update)
@@ -87,7 +98,23 @@ class PosetNetworkObject():
 
                 smaller_subgraph = self.iterative_G.subgraph(self.radius_for_edge_curv_calc_from_edge)
                 self.current_curvature_edge[self.edge_hashmap[edge_q]] = edge_forman_ricci(smaller_subgraph, u, v)
+        '''
+        # subgraph_update_nodes uses the same radius as subgraph_update_full — no need to recompute
+        subgraph_update_full = n_step_neighbourhood_nodes(self.iterative_G, node, self.subgraph_update_radius)
+        subgraph_update_edges = n_step_neighbourhood_nodes(self.iterative_G, node, self.distance_edge_curv_change)
+        subgraph_update_nodes = subgraph_update_full
 
+        local_subgraph = self.iterative_G.subgraph(subgraph_update_full)
+
+        for u, v in local_subgraph.edges:
+            if u in subgraph_update_edges and v in subgraph_update_edges:
+                edge_q = (u, v)
+                edge_neighbourhood = (
+                    n_step_neighbourhood_nodes(self.iterative_G, u, self.radius_for_edge_curv_calc_from_edge)
+                    | n_step_neighbourhood_nodes(self.iterative_G, v, self.radius_for_edge_curv_calc_from_edge)
+                )
+                smaller_subgraph = self.iterative_G.subgraph(edge_neighbourhood)
+                self.current_curvature_edge[self.edge_hashmap[edge_q]] = edge_forman_ricci(smaller_subgraph, u, v)
         # Initialize the list that will hold the new scores for the orchestrator
         nodes_to_queue = []
 
@@ -131,9 +158,12 @@ class PosetNetworkObject():
             self.edge_hashmap[(v, u)] = idx
 
     def init_node_hashmap(self,network):
-        self.node_hashmap = {}
+        self.node_hashmap = {}         # Maps node -> index
+        self.reverse_node_hashmap = {} # Maps index -> node
+        
         for idx, n in enumerate(network.nodes()):
             self.node_hashmap[n] = idx
+            self.reverse_node_hashmap[idx] = n
 
     def network_from_files(self, paths_to_read, p = None):
             # Unpack the paths in the exact order they were appended in files_for_network
@@ -194,3 +224,38 @@ class PosetNetworkObject():
                         edge_data = G.edges[i, j]
                         edge_data['triangles'] = edge_data.get('triangles', 0) + 1
             return G, cardinality_greater_1_nodes
+
+    def get_network_curvature(self):
+        self.node_curvature, self.edge_curvature = initialise_curvatures_forman_ricci(self.initialPoset, self.edge_hashmap, self.node_hashmap)
+        #so return a dictionary of the node number and curvature, then use the key file to match them.
+        node_list = list(self.hyperedge_nodes)
+        node_indices = [self.node_hashmap[n] for n in node_list]
+
+        hyperedge_curvature_dict = dict(zip(node_list, self.node_curvature[node_indices]))
+        return hyperedge_curvature_dict
+
+    def hypernetwork_nodes_curv(self):
+        '''
+        Use the aggregation of the hyperedge's curvature
+        Just sum the curvature of any node that it is incident on
+        '''
+        agg_curv_dict = {}
+        
+        # Iterate through all nodes in the NetworkX graph
+        for n in self.initialPoset.nodes():
+            
+            if n not in self.hyperedge_nodes:
+                agg_node_curv = 0
+                
+                # Get the neighborhood of node n using NetworkX
+                neighbors = self.initialPoset.neighbors(n)
+                
+                # Sum the curvature of each node in the neighborhood
+                for neighbour in neighbors:
+                    # Retrieve the curvature attribute (defaults to 0 if missing)
+                    agg_node_curv += self.node_curvature[self.node_hashmap[neighbour]]
+                
+                # Assign the aggregated sum to the dictionary
+                agg_curv_dict[n] = agg_node_curv
+                
+        return agg_curv_dict

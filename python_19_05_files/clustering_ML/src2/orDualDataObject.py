@@ -1,7 +1,8 @@
 from src2.data_object import DataObject
 from src2.hypernetwork_class import HypernetworkObject
 from src2.posetNetworkClass import PosetNetworkObject
-class OllivierRicciDulDataObject(DataObject):
+
+class OllivierRicciDualDataObject(DataObject):
     def __init__(self,hypernetwork_location,network_location):
         self.hypernetwork_obj = HypernetworkObject(hypernetwork_location)
         self.network_obj = PosetNetworkObject(network_location)

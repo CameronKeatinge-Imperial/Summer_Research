@@ -36,7 +36,7 @@ class HypernetworkObject():
                     
                 try:
                     # 1. Split and convert to integers, using set() to drop duplicates
-                    nodes_set = set(int(n) for n in stripped.split())
+                    nodes_set = set(int(n) for n in stripped.replace(",", " ").split())
                 except ValueError:
                     # Skip header rows or lines that can't be converted to ints
                     continue 

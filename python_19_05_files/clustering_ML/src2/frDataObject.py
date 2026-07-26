@@ -1,7 +1,7 @@
 from src2.data_object import DataObject
 from src2.hypernetwork_class import HypernetworkObject
 from src2.posetNetworkClass import PosetNetworkObject
-
+from src2.data_object import MappingOfHyperedges
 import numpy as np
 
 class FormanRicciDataObject(DataObject):
@@ -11,6 +11,7 @@ class FormanRicciDataObject(DataObject):
     '''
     def __init__(self,hypernetwork_location,network_location,hyp_key_file):
         super().__init__(hypernetwork_location,network_location,hyp_key_file)
+        self.labelMapping = MappingOfHyperedges(hyp_key_file)
         #so Queue, labelMapping object, self.is_hyp_node_removed exists
         #this is obviously from the posetObject
         self.new_queue_entries = None     
@@ -27,6 +28,19 @@ class FormanRicciDataObject(DataObject):
         #this defines self.hypernetwork_obj
         self.network_obj = PosetNetworkObject(network_files)
 
+    def initialise_curvature(self):
+        '''
+        Need to add that initialise curvature adds gets back all the curvatures of hyperedges
+        Then adds them to queue object
+        '''
+        #just creates curvature objects in network
+        initial_curv_vals = self.network_obj.initialise_curvature()
+        #the key is the nodes within the network
+        #print(self.labelMapping._to_spec2.keys())
+        self.is_hyp_node_removed = dict.fromkeys(self.labelMapping._to_spec2.keys(), False)
+        #NEED TO POPULATE
+        self.hyperedge_queue.push_mult(initial_curv_vals)
+        
     def recalculate_curvature(self):
         '''
         maybe this should be self.network_obj.values_to_add
@@ -70,3 +84,8 @@ class FormanRicciDataObject(DataObject):
                 break 
         self.is_hyp_node_removed[node] = True
         return node
+
+    def return_init_curvature(self):
+        hyperedge_curv_dict = self.network_obj.get_network_curvature()
+        nodes_curv_dict = self.network_obj.hypernetwork_nodes_curv()
+        return hyperedge_curv_dict, nodes_curv_dict
