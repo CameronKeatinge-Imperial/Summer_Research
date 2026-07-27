@@ -1,0 +1,349 @@
+import networkx as nx
+from pathlib import Path
+import re
+from typing import Any
+import numpy as np
+import networkx as nx
+from pathlib import Path
+#from itertools import chain
+from collections.abc import Iterable
+import os
+import random
+import os
+from src.data_processing import load_config
+from src.create_dual_networks import process_and_save_dual_complexes
+
+class DualNetworkObject():
+
+    def __init__(self,network_files):
+        self.int_to_hyperedge = {}
+        self.hyperedge_to_int = {}
+        self.edge_dependent_node = {}
+        self.card_networks = {}
+        self.networks_from_files(network_files)
+
+    def networks_from_files(self,paths_to_read, p = None):
+        '''
+        Paths to read is an N x 2 list
+        '''
+        print("len(paths_to_read)")
+        print(len(paths_to_read))
+        #define dictionary
+
+        for i in range(len(paths_to_read)):
+            print(paths_to_read[i])
+            self.card_networks[self.get_cardinality(paths_to_read[i])] = self.construct_indiv_dual_network([paths_to_read[i]])
+
+    @staticmethod
+    def _parse_hyperedge_str(s):
+        """'[23, 25, 49, 66]' -> [23, 25, 49, 66]"""
+        s = s.strip().strip('[]')
+        return [int(x) for x in s.split(',')] if s else []
+
+    def get_cardinality(self,files):
+        nodes_file = files[0]
+        with open(nodes_file, 'r') as f:
+            first_line = f.readline()
+        cardinality = len(self._parse_hyperedge_str(first_line))
+        return cardinality
+
+    def construct_indiv_dual_network(self, files):
+        '''
+        Should be length 2, start here tomorrow.
+        '''
+        print(len(files))
+        nodes_p = files[0]
+        edges_p = files[1]
+
+        G = nx.Graph()
+
+        # 1. Register every hyperedge listed in nodes_p as a dual-graph node.
+        with open(nodes_p, 'r') as f:
+            hyperedge_members = (
+                self._parse_hyperedge_str(line) for line in f if line.strip()
+            )
+            nodes = self.map_hyperedge_nodes_to_int(hyperedge_members)
+            G.add_nodes_from(nodes)
+
+        # 2. Stream edges into the graph. Each line: "[..]:[..]"
+        with open(edges_p, 'r') as f:
+            hyperedge_edges = [
+                tuple(self._parse_hyperedge_str(part) for part in line.split(':'))
+                for line in f if line.strip()
+            ]
+
+            edges_in_dual = self.hyperedge_to_node_dual_edge_transform(hyperedge_edges)
+            edges_in_dual = self.map_edge_to_dependent_node(hyperedge_edges)
+            G.add_edges_from(e for e in edges_in_dual if len(e) >= 2)
+
+        return G
+
+    def map_hyperedge_nodes_to_int(self, hyperedges_list):
+        '''
+        Init should initiate this hashmap
+        Should have key as the node number, then value as the set of nodes (in hypernetwork)
+        Each time new hyperedge is passed in (hyperedges will be a list), add to the key sequentially as integers
+        '''
+        for hyperedge in hyperedges_list:
+            key = frozenset(hyperedge)
+            if key not in self.hyperedge_to_int:
+                new_id = len(self.int_to_hyperedge)
+                self.int_to_hyperedge[new_id] = key
+                self.hyperedge_to_int[key] = new_id
+
+    def hyperedge_to_node_dual_edge_transform(self, hyperedges_list):
+        '''
+        Get all the edges in the form of being between two hyperedges
+        Transform that to an edge between two nodes, using mapping defined in map_hyperedge_nodes_to_int()
+        '''
+        edges = []
+        for h1, h2 in hyperedges_list:
+            shared = frozenset(h1) & frozenset(h2)
+            id1 = self.hyperedge_to_int[frozenset(h1)]
+            id2 = self.hyperedge_to_int[frozenset(h2)]
+            edges.append((id1, id2))
+        return edges
+
+
+    def get_dependent_node(self, h1, h2):
+        shared = frozenset(h1) & frozenset(h2)
+        return self.hyperedge_to_int[shared]
+
+    def map_edge_to_dependent_node(self, hyperedges_list):
+        '''
+        For each edge, map to a node of cardinality (of one less)
+        Of the two hyperedges that form an edge/pair, they will share all but one node within their hyperedge
+        This intersection itself will be a node, which can be found with the bijection defined in map_hyperedge_int
+        '''
+        for h1, h2 in hyperedges_list:
+            id1 = self.hyperedge_to_int[frozenset(h1)]
+            id2 = self.hyperedge_to_int[frozenset(h2)]
+            dep_id = self.get_dependent_node(h1, h2)
+            self.edge_dependent_node[{id1,id2}] = dep_id
+
+
+class NetworkProcessor:
+    '''
+    1. Add validation that paths exist
+    2. If paths do not exist, trigger create files
+    '''
+    def __init__(self, config):
+        # Load the configuration file once during initialization
+        self.config = config
+        self.curvature_discretisation = self.config["model"]["curvature_form"]
+        self.source = self.config["data"]["data_source_type"]
+        self.dataset_name = self.config["data"]["hypernetwork_name"]
+        self.base_dir = Path("data")
+        #####################
+        # NEEDS GENERALISED #
+        #####################
+        if self.curvature_discretisation == 'Forman':
+            self.network_decomposition = "poset_complex"
+        if self.curvature_discretisation == 'OR Dual':
+            self.network_decomposition = 'dual_networks'
+        if self.curvature_discretisation == 'OR MMOT':
+            self.network_decomposition = None
+        self.initial_check_hypernetwork_files()
+
+    def initial_check_hypernetwork_files(self):
+        hyperedge_path = os.path.join(self.base_dir, self.source, "hypernetwork_form", "edges", f"{self.dataset_name}.txt")
+        hypernet_nodes_path = os.path.join(self.base_dir, self.source, "hypernetwork_form", "nodes", f"{self.dataset_name}.txt")
+        paths_search_h = []
+        paths_search_h.append(hyperedge_path)
+        paths_search_h.append(hypernet_nodes_path)
+        if (self.validate_files_populated(paths_search_h)==True):
+            print("Hypernetwork paths already exist")
+        else:
+            if (self.validate_files_populated([hyperedge_path])==False):
+                print("No hypernetwork hyperedge file")
+            else:
+                self.make_nodes_file_from_hyperedges(hyperedge_path)
+
+    def files_for_network(self) -> list[str]:
+        '''
+        NEED TO GENERALISE
+        '''
+        # 1. Safely extract settings from config with fallbacks/defaults
+        print(self.network_decomposition)
+        if self.network_decomposition == 'poset_complex':
+            return self.forman_ricci_files()
+        if self.network_decomposition == 'dual_networks':
+            return self.orc_dual_files()
+        
+    def files_for_hypernetwork(self) -> list[str]:            
+        hyperedge_path = os.path.join(self.base_dir, self.source, "hypernetwork_form", "edges", f"{self.dataset_name}.txt")
+        hypernet_nodes_path = os.path.join(self.base_dir, self.source, "hypernetwork_form", "nodes", f"{self.dataset_name}.txt")
+        paths_search_h= []
+        paths_search_h.append(hyperedge_path)
+        paths_search_h.append(hypernet_nodes_path)
+        if (self.validate_files_populated(paths_search_h)==True):
+            print("Hypernetwork paths exist (for reading)")
+        return paths_search_h
+    
+    def forman_ricci_files(self):
+        needed_info=["nodes", "edges", "triangles", "cardinality"]
+        paths_search= []
+        for n in needed_info:
+            n_path_string = os.path.join(self.base_dir, self.source, self.network_decomposition, n, f"{self.dataset_name}.txt")
+            paths_search.append(n_path_string)
+        if (self.validate_files_populated(paths_search)==True):
+            print("Forman Ricci file paths exist")
+        else:
+            self.base_dir = Path("data")
+            source_path = os.path.join(self.base_dir, self.source)
+            process_and_save_poset(source_path,self.dataset_name)
+        return paths_search
+    
+    def orc_dual_files(self):
+        needed_info = ["nodes","edges"]
+        paths_search = []
+        #but now need to get the networks of all the networks of different cardinality
+        file_of_nodes = os.path.join(self.base_dir, self.source, self.network_decomposition, "nodes", self.dataset_name)
+        self.hyperedge_cardinalities = self.extract_cardinalities_from_files(file_of_nodes)
+
+        for c in self.hyperedge_cardinalities:
+            #add these as a sublist/array, so now 2d
+            cardinality_pairs = []
+            for n in needed_info:
+                n_path_string = os.path.join(self.base_dir, self.source, self.network_decomposition, n, self.dataset_name, f"{n}_k{c}.txt")
+                cardinality_pairs.append(n_path_string)
+            paths_search.append(cardinality_pairs)
+
+        if (self.validate_files_populated(paths_search)==True):
+            print("Ollivier Ricci Dual file paths exist")
+        else:
+            self.base_dir = Path("data")
+            source_path = os.path.join(self.base_dir, self.source)
+            process_and_save_dual_complexes(source_path,self.dataset_name)
+        return paths_search
+        
+    def extract_cardinalities_from_files(self, folder_path):
+        """
+        read all the files from this file location, but from their names in the form nodes_k{number}.txt
+        """
+        cardinalities = []
+        
+        # Define a regex pattern: 'nodes_k' followed by one or more digits (\d+), ending in '.txt'
+        # The parenthesis () create a capture group for just the digits
+        pattern = re.compile(r'^nodes_k(\d+)\.txt$')
+        
+        try:
+            # List all files in the given directory
+            for filename in os.listdir(folder_path):
+                match = pattern.match(filename)
+                if match:
+                    # Extract the captured number string and convert it to an int
+                    number = int(match.group(1))
+                    cardinalities.append(number)
+        except FileNotFoundError:
+            print(f"Error: The folder '{folder_path}' does not exist.")
+            return []
+
+        # Return the numbers sorted for easier processing later
+        return sorted(cardinalities)
+    
+    def hyperedge_key_file(self):
+        '''
+        needed_info = ["hyperedge_node_key"]
+        paths_search= []
+        for n in needed_info:
+            n_path_string = os.path.join(self.base_dir, self.source, n, f"{self.dataset_name}.txt")
+            paths_search.append(n_path_string)
+        return paths_search
+        '''
+        if self.curvature_discretisation == 'OR MMOT':
+            return None
+        else:
+            return os.path.join(self.base_dir, self.source, self.network_decomposition, "hyperedge_node_key", f"{self.dataset_name}.txt")
+
+    def validate_files_populated(self, testing_paths):
+        '''
+        Binary output of whether all the files exist and are non-empty
+        '''
+        #read the nodes and edges
+        #specific_file_within
+        verified_paths = []
+        for path_str in self.flatten_paths(testing_paths):
+        #for path_str in chain.from_iterable(paths):
+            path = Path(path_str)
+            print(f"Checking file: {path.absolute()}")
+
+            if not path.is_file():
+                print(f"  [Error] Missing required file: {path_str}")
+                self.existsNetworkFile = False
+                print("A required files NOT verified.")
+
+                return False # Stop processing immediately since the batch is incomplete
+
+            if path.stat().st_size == 0:
+                print(f"  [Error] File is empty: {path_str}")
+                self.existsNetworkFile = False
+                print("A required files NOT verified.")
+
+                return False # Stop processing immediately since the batch has an empty file
+
+            verified_paths.append(str(path))
+
+        # 2. All files exist and are non-empty, proceed to execution
+        print("All required files verified. Processing...")
+        return True
+    
+    def flatten_paths(self,paths_data):
+        flat_list = []
+        # Force single items into a loopable list if the top level isn't iterable
+        if not isinstance(paths_data, Iterable) or isinstance(paths_data, (str, bytes)):
+            paths_data = [paths_data]
+            
+        for item in paths_data:
+            if isinstance(item, Iterable) and not isinstance(item, (str, bytes)):
+                flat_list.extend(item) # Unpacks lists, sets, or tuples
+            else:
+                flat_list.append(item)
+        return flat_list
+    
+    def make_nodes_file_from_hyperedges(self,file_loc):
+        '''
+        Read a file of comma-separated numbers (one group per line),
+        find the largest number in it, then write a new file containing
+        1 through that max number, one per line.
+        '''
+        print("Trying to write into hyperedge node file")
+        max_num = 0
+        with open(file_loc) as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                nums = [int(x) for x in line.split(',')]
+                max_num = max(max_num, max(nums))
+        hypernet_nodes_path = os.path.join(self.base_dir, self.source, "hypernetwork_form", "nodes", f"{self.dataset_name}.txt")
+        with open(hypernet_nodes_path, 'w') as f:
+            for i in range(1, max_num + 1):
+                f.write(f'{i}\n')
+
+    def save_dict_to_file(self,my_dictionary,node_or_edge: str, measure: str):
+        results_dir = Path("results")
+
+        path = os.path.join(results_dir, self.source, self.dataset_name, node_or_edge, f"{measure}.txt")
+
+        # 1. Create all necessary parent directories if they don't exist
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+
+        # 2. Open the file and write the dictionary contents
+        with open(path, 'w', encoding='utf-8') as f:
+            for key, value in my_dictionary.items():
+                f.write(f"{key} : {value}\n")
+
+
+if __name__ == "__main__":
+
+    config_path = "config/config.yaml"
+    config = load_config(config_path)
+
+    #process_and_save_dual_complexes("data/real_world_data", "senate-commitees")
+
+    paths_obj = NetworkProcessor(config)
+    files_for_input = paths_obj.files_for_network()
+    print(files_for_input)
+    DualNetworkObject(files_for_input)
+
