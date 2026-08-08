@@ -89,3 +89,10 @@ class FormanRicciDataObject(DataObject):
         hyperedge_curv_dict = self.network_obj.get_network_curvature()
         nodes_curv_dict = self.network_obj.hypernetwork_nodes_curv()
         return hyperedge_curv_dict, nodes_curv_dict
+
+    def change_hyperedge_keys(self,input_dict):
+        new_dict = {
+            self.labelMapping.node_to_hyperedge_map(old_key): value 
+            for old_key, value in input_dict.items()
+        }
+        return new_dict

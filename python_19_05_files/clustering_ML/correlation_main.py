@@ -4,7 +4,6 @@ from src.FR_subclass import FormanRicciClustering
 from src.data_processing import read_true_labels
 from src2.correlation_algo import measuresClass
 
-
 def main():
     print("Starting ML Pipeline...")
     #config info
@@ -18,7 +17,7 @@ def main():
     hyperedge_dictionary = model.change_hyperedge_keys(hyperedge_dictionary)
     print("Saving measure dictionary")
 
-    model.save_dataframes(config["model"]["measure"],edge_dict=hyperedge_dictionary,node_dict=node_dictionary)
+    model.save_dataframes(config["model"]["curvature_form"],config["model"]["measure"],edge_dict=hyperedge_dictionary,node_dict=node_dictionary)
 
 
 if __name__ == "__main__":

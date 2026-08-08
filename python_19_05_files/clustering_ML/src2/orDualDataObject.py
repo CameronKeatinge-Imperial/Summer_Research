@@ -1,19 +1,78 @@
+import os
+import networkx as nx
+import re
+from pathlib import Path
 from src2.data_object import DataObject
 from src2.hypernetwork_class import HypernetworkObject
-from src2.posetNetworkClass import PosetNetworkObject
+from src2.dualNetworkClass import DualNetworkObject
+from src.create_dual_networks import process_and_save_dual_complexes
 
 class OllivierRicciDualDataObject(DataObject):
-    def __init__(self,hypernetwork_location,network_location):
+    def __init__(self,hypernetwork_location,network_location,extra=0):
+        super().__init__(hypernetwork_location,network_location,extra)
+        self.network_decomposition = "dual_networks"
+        self.hypernetwork_location = hypernetwork_location
         self.hypernetwork_obj = HypernetworkObject(hypernetwork_location)
-        self.network_obj = PosetNetworkObject(network_location)
+        self.network_obj = DualNetworkObject(network_location)
 
-    def construct_network_and_hypernetwork():
+    def construct_network_and_hypernetwork(self,hyp_loc,net_loc):
         '''
         Need to ensure the bijection of hyperedges to network_object is understood.
         So this is specific for FRC and creating the poset
         '''
-        self.network_from_files()
+        self.hypernetwork_obj = HypernetworkObject(hyp_loc)
+        self.network_obj = DualNetworkObject(net_loc)
 
+    def construct_network(self,data_source,dataset_name):
+        #from the hypernetwork file, get all the subnetworks
+        #can add if need the functionality?
+        SCRIPT_DIR = Path(__file__).resolve().parent
+        BASE_DATA_DIR = SCRIPT_DIR.parent / "data"
+        data_source = os.path.join(BASE_DATA_DIR, data_source)
+        process_and_save_dual_complexes(data_source,dataset_name)
+
+    def files_for_network(self,source,name):
+        needed_info = ["nodes","edges"]
+        paths_search = []
+        base_dir = Path("data")
+        #but now need to get the networks of all the networks of different cardinality
+        file_of_nodes = os.path.join(base_dir, source, self.network_decomposition, "nodes", name)
+        self.hyperedge_cardinalities = self.extract_cardinalities_from_files(file_of_nodes)
+
+        for c in self.hyperedge_cardinalities:
+            #add these as a sublist/array, so now 2d
+            cardinality_pairs = []
+            for n in needed_info:
+                n_path_string = os.path.join(base_dir, source, self.network_decomposition, n, name, f"{n}_k{c}.txt")
+                cardinality_pairs.append(n_path_string)
+            paths_search.append(cardinality_pairs)
+        return paths_search
+    
+
+    def extract_cardinalities_from_files(self, folder_path):
+        """
+        read all the files from this file location, but from their names in the form nodes_k{number}.txt
+        """
+        cardinalities = []
+        
+        # Define a regex pattern: 'nodes_k' followed by one or more digits (\d+), ending in '.txt'
+        # The parenthesis () create a capture group for just the digits
+        pattern = re.compile(r'^nodes_k(\d+)\.txt$')
+        
+        try:
+            # List all files in the given directory
+            for filename in os.listdir(folder_path):
+                match = pattern.match(filename)
+                if match:
+                    # Extract the captured number string and convert it to an int
+                    number = int(match.group(1))
+                    cardinalities.append(number)
+        except FileNotFoundError:
+            print(f"Error: The folder '{folder_path}' does not exist.")
+            return []
+
+        # Return the numbers sorted for easier processing later
+        return sorted(cardinalities)
 
     def network_from_files(self,file_location_verified,paths_tuples):
         #initialNetwork will be a dictionary of initial networks
@@ -43,3 +102,46 @@ class OllivierRicciDualDataObject(DataObject):
                 
             self.initialNetwork[network_card] = G
     
+    def hyperedge_removal(self):
+        pass
+    def initialise_curvature(self):
+        pass
+    def recalculate_curvature(self):
+        pass
+
+    def return_init_curvature(self):
+        hyperedge_curv_dict = self.network_obj.get_network_curvature()
+        nodes_curv_dict = self.hypernetwork_nodes_curv(hyperedge_curv_dict)
+        return hyperedge_curv_dict, nodes_curv_dict
+
+    def hypernetwork_nodes_curv(self,hyperedge):
+
+        all_keys_union = set().union(*hyperedge.keys())
+        #this gets all the node
+        node_curvature = {}
+
+        '''
+        for each k in all_keys_union:
+            for each j in hyperedge.keys():
+                if k in the set j:
+                    add to node_curvature[k]
+
+        for k in all_keys_union:
+            node_curvature[k] = 0
+            for j in hyperedge.keys():
+                if k in j:
+                    node_curvature[k] += hyperedge[j]
+        '''
+        node_curvature = {}
+        for j, v in hyperedge.items():
+            for k in j:
+                node_curvature[k] = node_curvature.get(k, 0) + v
+
+        return node_curvature
+
+    def change_hyperedge_keys(self,input_dict):
+        new_dict = {
+            ",".join(map(str, sorted(eid))): curvature
+            for eid, curvature in input_dict.items()
+        }
+        return new_dict

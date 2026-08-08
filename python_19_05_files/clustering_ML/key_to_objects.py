@@ -9,7 +9,7 @@ import xgi
 from src2.posetNetworkClass import PosetNetworkObject
 from src2.hypernetwork_class import HypernetworkObject
 from src2.data_object import MappingOfHyperedges
-from src2.algorithm_class import NetworkProcessor
+from src2.clustering_algo import NetworkProcessor
 from src.data_processing import load_config
 
 # ---------------------------------------------------------

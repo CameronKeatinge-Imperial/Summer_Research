@@ -7,9 +7,7 @@ from src.data_processing import load_config #, read_data
 from src.iterative_clustering import StatisticalModelTemplate
 from src.FR_subclass import FormanRicciClustering
 from src.data_processing import read_true_labels
-from src2.algorithm_class import algorithmClass
-from src2.compare_external import EvaluateClustering
-#FormanRicciClustering
+from src2.clustering_algo import algorithmClass
 def main():
     print("Starting ML Pipeline...")
     #config info
@@ -19,6 +17,7 @@ def main():
     print("Loading data...")
     #data_paths = get_model_type(config["data"])
 
+    # need to add config specified for which object they choose.
     model = algorithmClass()
     predicted_assignment = model.perform_algorithm(config)
 
@@ -27,8 +26,10 @@ def main():
     #read in true data
     true_labels = read_true_labels(config["data"]["data_source_type"],config["data"]["hypernetwork_name"])
     print(f"Number of clusters", max(true_labels))
-    final_eval = EvaluateClustering(config,true_labels, predicted_assignment)
-    final_eval.print_to_output_file()
+    #final_eval = EvaluateClustering(config,true_labels,predicted_assignment) # need to sort
+    #final_eval.print_to_output_file()
+    #final_eval.get_external_measure()
+
     print(f"Pipeline Complete. Metrics:")
 
 if __name__ == "__main__":

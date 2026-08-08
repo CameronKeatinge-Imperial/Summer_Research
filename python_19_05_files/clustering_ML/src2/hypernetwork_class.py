@@ -4,6 +4,7 @@ import pandas as pd
 from collections import Counter
 from math import comb
 from src2.indep_functions import calculate_modularity_ext
+
 class HypernetworkObject():
     def __init__(self,file_in):
         self.initialHypernetwork = self.hypernetwork_from_files(file_in)
