@@ -35,8 +35,8 @@ from scipy.sparse.csgraph import connected_components, dijkstra
 from src2.indep_functions import calculate_modularity_ext
 
 # distance code used for "further apart than `radius`" in the uint8 blocks
-UNREACHABLE = 255
-
+UNREACHABLE = 255 #replacement for infinity
+SAFE_RADIUS = 5
 
 @dataclass
 class EdgeBarycenterResult:
@@ -95,7 +95,8 @@ class HypergraphDistance:
         self.A = A.tocsr()
         self.node_to_idx = node_to_idx
         self.idx_to_node = idx_to_node
-        self.radius = int(radius)
+        self.radius = int(radius) # radius is the cap on distance measures
+        #by having it equal 5, it means on the subnetworks everything is calculated
         self.indptr = self.A.indptr
         self.indices = self.A.indices
 
@@ -300,10 +301,15 @@ def lp_barycenter_with_costs(A, C, weights):
 # ----------------------------------------------------------------------
 
 _WORKER = None
+_LIMITS = None          # keep the limiter alive for the process lifetime
 
-
-def _worker_init(edge_to_nodes, nodes, params):
-    global _WORKER
+def _worker_init(edge_to_nodes, nodes, params, blas_threads=1):
+    global _WORKER, _LIMITS
+    try:
+        from threadpoolctl import threadpool_limits
+        _LIMITS = threadpool_limits(blas_threads)
+    except ImportError:
+        pass
     _WORKER = MMOTHypernetworkObject.__new__(MMOTHypernetworkObject)
     _WORKER._install_working_state(edge_to_nodes, nodes)
     _WORKER.itertative_H = None
@@ -317,7 +323,6 @@ def _worker_edge(eid):
     return eid, _WORKER.compute_edge(eid)
 
 
-# ----------------------------------------------------------------------
 
 class MMOTHypernetworkObject():
     def __init__(self, file_in):
@@ -333,22 +338,10 @@ class MMOTHypernetworkObject():
         self.last_removed_hyp_members = None
         self.additional_parameters()
 
-    # ---------------- configuration ----------------
-
     def additional_parameters(self, reg: float = 0.1, maxiter: int = 500,
                               tol: float = 1e-6, lp_threshold: int = 0,
-                              lazy_support: bool = True, radius: int = 5,
+                              lazy_support: bool = False, radius: int = 5,
                               alpha: float = 0.01, n_jobs: int = 1):
-        """
-        `reg` defaults to 0.5, not 0.05 (A2). Distances are integers in
-        [0, radius]; at reg = 0.05 the kernel spanned exp(0) to exp(-100), so
-        only distances 0 and 1 carried any numerical mass. Calibrate by raising
-        `lp_threshold` so small hyperedges take the exact LP path and comparing.
-
-        `n_jobs` > 1 enables a process pool over hyperedges (A8). It is opt-in:
-        on Windows the pool spawns, so the calling script needs an
-        `if __name__ == "__main__":` guard. -1 uses all cores.
-        """
         self.wdc = "linear"
         self.reg = reg
         self.maxiter = maxiter
@@ -365,19 +358,18 @@ class MMOTHypernetworkObject():
         self.dist = None
         self.node_to_idx = None
         self.idx_to_node = None
-        self._k_lut = None
-        self._m_lut = None
-        self._c_lut = None
+        self._c_lut = None # the cost itself - 0.0, 1.0, 2.0, 3.0
+        self._k_lut = None # the Gibbs kernel - 1.0, 4.5e-05, 2.1e-09, 9.4e-14
+        self._m_lut = None # product kernel - 0.0, 4.5e-05, 4.1e-09, 2.8e-13
         self._degrees = None
         self._state_dirty = True
+        self._sentinel_possible = self.radius < SAFE_RADIUS
 
     def _tuning_params(self):
         return dict(reg=self.reg, maxiter=self.maxiter, tol=self.tol,
                     lp_threshold=self.lp_threshold,
                     lazy_support=self.lazy_support, radius=self.radius,
                     alpha=self.alpha, n_jobs=1)
-
-    # ---------------- loading ----------------
 
     def hypernetwork_from_files(self, file):
         print("reading hypergraph")
@@ -411,7 +403,6 @@ class MMOTHypernetworkObject():
         return self.initialHypernetwork
 
     def _install_working_state(self, edge_to_nodes, nodes):
-        """Dict-backed working state -- what every hot loop reads (A7)."""
         self._edge_to_nodes = {
             eid: frozenset(members) for eid, members in edge_to_nodes.items()
         }
@@ -424,7 +415,6 @@ class MMOTHypernetworkObject():
     def return_edge_dict(self):
         return dict(self._edge_to_nodes)
 
-    # ---------------- removal ----------------
 
     def remove_hyperedge(self, hyperedge_nodes):
         hyperedge = self.hyperedge_to_edge_id(hyperedge_nodes)
@@ -441,6 +431,7 @@ class MMOTHypernetworkObject():
 
         self.itertative_H.remove_edge(hyperedge)
         self._state_dirty = True
+        self._build_modularity_invariants()
 
     def update_neighbourhood_scores(self, removed_nodes=None) -> list:
         """
@@ -534,8 +525,11 @@ class MMOTHypernetworkObject():
         self._c_lut = np.append(d, float(R + 1))
 
     def _kernels(self, C_u8):
-        codes = np.where(C_u8 == UNREACHABLE, self.radius + 1,
-                         C_u8).astype(np.int64)
+        if self._sentinel_possible:
+            codes = np.where(C_u8 == UNREACHABLE, self.radius + 1,
+                            C_u8).astype(np.int64)
+        else:
+            codes = C_u8.astype(np.int64)
         return self._k_lut[codes], self._m_lut[codes], self._c_lut[codes]
 
     def _build_modularity_invariants(self):
@@ -591,15 +585,22 @@ class MMOTHypernetworkObject():
         )
 
         C_u8 = self.dist.submatrix(support)
-        support, C_u8, connected = self._restrict_to_member_component(
-            support, C_u8, nodes_e
-        )
-        if not connected:
-            return EdgeBarycenterResult(
-                edge_id=e, nodes=nodes_e, support=support,
-                costs=np.array([]), mean_cost=float("nan"),
-                curvature=float("nan"), method="disconnected",
-                degenerate=True, n_support=len(support),
+
+        if self._sentinel_possible:
+            support, C_u8, connected = self._restrict_to_member_component(
+                support, C_u8, nodes_e
+            )
+            if not connected:
+                return EdgeBarycenterResult(
+                    edge_id=e, nodes=nodes_e, support=support,
+                    costs=np.array([]), mean_cost=float("nan"),
+                    curvature=float("nan"), method="disconnected",
+                    degenerate=True, n_support=len(support),
+                )
+        else:
+            assert not (C_u8 == UNREACHABLE).any(), (
+                f"edge {e}: sentinel at radius={self.radius} >= {SAFE_RADIUS}; "
+                f"the support-diameter bound has been broken"
             )
 
         idx = {u: k for k, u in enumerate(support)}
@@ -640,23 +641,29 @@ class MMOTHypernetworkObject():
 
         n_jobs = self.n_jobs
         if n_jobs == -1:
-            n_jobs = os.cpu_count() or 1
+            try:
+                n_jobs = len(os.sched_getaffinity(0))
+            except AttributeError:          # not available on macOS/Windows
+                n_jobs = os.cpu_count() or 1
         if n_jobs > 1 and len(edges) > 1:
             return self._compute_all_parallel(edges, n_jobs)
 
         return {e: self.compute_edge(e) for e in edges}
 
-    def _compute_all_parallel(self, edges, n_jobs):
+    def _compute_all_parallel(self, edges, n_jobs, blas_threads=1):
         """A8: hyperedges are independent given fixed state."""
+        # cost is O(maxiter * n^2 * N); dispatch the expensive edges first
+        # so the stragglers overlap with the rest of the queue
+        edges = sorted(edges, key=lambda e: -len(self._edge_to_nodes[e]))
+
         results = {}
         with ProcessPoolExecutor(
             max_workers=n_jobs,
             initializer=_worker_init,
             initargs=(dict(self._edge_to_nodes), list(self._nodes),
-                      self._tuning_params()),
+                      self._tuning_params(), blas_threads),
         ) as pool:
-            chunk = max(1, len(edges) // (n_jobs * 8))
-            for eid, result in pool.map(_worker_edge, edges, chunksize=chunk):
+            for eid, result in pool.map(_worker_edge, edges, chunksize=1):
                 results[eid] = result
         return results
 
@@ -741,7 +748,8 @@ class MMOTHypernetworkObject():
             for d, count in self._edge_size_hist.items():
                 expected += (count / self._total_edges) * self._expected_chi(d, p)
 
-        return observed - expected
+        return (observed / self._total_edges if self._total_edges else 0.0) - expected
+        #return observed - expected
 
     def _chi(self, d, c):
         if self.wdc == "strict":

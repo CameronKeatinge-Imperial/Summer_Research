@@ -62,12 +62,9 @@ class PosetNetworkObject():
         topology_change_neighbourhood = n_step_neighbourhood_nodes(self.iterative_G,node,self.distance_topology_change)
         #in this case radius of size 1
         self.network_is_node_removed[self.node_hashmap[node]] = True
-        '''
-        for node_p in topology_change_neighbourhood:
-            if self.network_is_node_removed[self.node_hashmap[node_p]] == False:
-                #remove node -> node_p edge
-                self.iterative_G.remove_edge(node, node_p)
-        '''
+
+        self._delete_triangles_at_node(node)
+        
         edges_to_remove = [
             (node, node_p) for node_p in topology_change_neighbourhood
             if not self.network_is_node_removed[self.node_hashmap[node_p]]
@@ -200,30 +197,54 @@ class PosetNetworkObject():
             with open(nodes_p, 'r') as f:
                 node_generator = (int(line.strip()) for line in f if line.strip())
                 G.add_nodes_from(node_generator)
-            
+
+            self.triangles = []            # t_id -> list of member nodes, as listed in the file
+            self.node_to_triangles = {}    # node -> [t_id, ...]
+
             with open(triangles_p, 'r') as f:
                 for line in f:
-                    # 1. Parse the line safely
-                    temp = list(map(int, line.strip().split()))
-                    
-                    # 2. Update Node Triangle Counts safely
+                    if not line.strip():
+                        continue
+                    temp = list(map(int, line.split()))
+                    t_id = len(self.triangles)
+                    self.triangles.append(temp)
+
                     for i in temp:
-                        # Ensure the node exists in the graph first
                         if i not in G:
                             G.add_node(i)
-                        # Use .get('triangles', 0) to handle missing attributes safely
                         G.nodes[i]['triangles'] = G.nodes[i].get('triangles', 0) + 1
-                        
-                    # 3. Update Edge Triangle Counts safely
+                        self.node_to_triangles.setdefault(i, []).append(t_id)
+
                     for i, j in it.combinations(temp, 2):
-                        # Ensure the edge exists, regardless of node order
                         if not G.has_edge(i, j):
                             G.add_edge(i, j)
-                            
-                        # Safely get the existing edge dictionary object
                         edge_data = G.edges[i, j]
                         edge_data['triangles'] = edge_data.get('triangles', 0) + 1
+
+            self.triangle_alive = np.ones(len(self.triangles), dtype=bool)
             return G, cardinality_greater_1_nodes
+
+    def _delete_triangles_at_node(self, node):
+        """
+        Kill every still-alive listed triangle containing `node` and decrement the
+        cached counts on its member nodes and edges.
+
+        Must run BEFORE the incident edges are deleted, so the edge attribute
+        dicts still exist. Exactly mirrors the increments done at load time, so
+        counts can never drift or go negative.
+        """
+        G = self.iterative_G
+        for t_id in self.node_to_triangles.get(node, ()):
+            if not self.triangle_alive[t_id]:
+                continue
+            self.triangle_alive[t_id] = False
+
+            members = self.triangles[t_id]
+            for i in members:
+                G.nodes[i]['triangles'] -= 1
+            for i, j in it.combinations(members, 2):
+                if G.has_edge(i, j):
+                    G.edges[i, j]['triangles'] -= 1
 
     def get_network_curvature(self):
         self.node_curvature, self.edge_curvature = initialise_curvatures_forman_ricci(self.initialPoset, self.edge_hashmap, self.node_hashmap)

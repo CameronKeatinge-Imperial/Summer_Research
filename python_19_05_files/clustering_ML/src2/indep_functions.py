@@ -28,9 +28,10 @@ def initialise_curvatures_forman_ricci(graph,mapping_edges,mapping_nodes):
         node_curvature[mapping_nodes[n]] = temp
     return node_curvature, edge_curvature
 
-def edge_forman_ricci(graph,edge_point_1,edge_point_2):
+def edge_forman_ricci(graph, edge_point_1, edge_point_2):
     #edge is in form (u,v)
-    temp = 4 - graph.degree(edge_point_1) - graph.degree(edge_point_2) + 3*graph.edges[edge_point_1,edge_point_2]['triangles']
+    triangles = graph.edges[edge_point_1, edge_point_2].get('triangles', 0)
+    temp = 4 - graph.degree(edge_point_1) - graph.degree(edge_point_2) + 3 * triangles
     return temp
    
 def node_forman_ricci(graph,node,edge_curvature,mapping_edges):

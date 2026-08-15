@@ -40,10 +40,8 @@ class measuresClass():
     
     def save_dataframes(self,curv_type,measure_name,edge_dict,node_dict=None):
         #for edges
-        print(edge_dict)
-        file_name = curv_type + measure_name
+        file_name = curv_type + "_" + measure_name
         self.configNavigator.save_dict_to_file(edge_dict,'hyperedge',file_name)
         #for nodes
-        print(node_dict)
         if not node_dict == None:
             self.configNavigator.save_dict_to_file(node_dict,'node',file_name)

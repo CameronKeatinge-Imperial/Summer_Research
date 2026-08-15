@@ -21,9 +21,9 @@ class NetworkProcessor:
 
         if self.curvature_discretisation == 'Forman':
             self.network_decomposition = "poset_complex"
-        if self.curvature_discretisation == 'OR Dual':
+        if self.curvature_discretisation == 'OR_Dual':
             self.network_decomposition = 'dual_networks'
-        if self.curvature_discretisation == 'OR MMOT':
+        if self.curvature_discretisation == 'OR_MMOT':
             self.network_decomposition = None
         self.initial_check_hypernetwork_files()
 
@@ -132,7 +132,7 @@ class NetworkProcessor:
             paths_search.append(n_path_string)
         return paths_search
         '''
-        if self.curvature_discretisation == 'OR MMOT':
+        if self.curvature_discretisation == 'OR_MMOT':
             return None
         else:
             return os.path.join(self.base_dir, self.source, self.network_decomposition, "hyperedge_node_key", f"{self.dataset_name}.txt")

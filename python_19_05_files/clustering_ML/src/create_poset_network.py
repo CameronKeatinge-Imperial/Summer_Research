@@ -5,11 +5,12 @@ from datetime import datetime
 from pathlib import Path
 import time
 import sys
+import re
+
 start = time.time()
 
 def process_and_save_poset(data_source,  dataset_name):
     data_source_path = Path(data_source)
-
     input_1 = os.path.join(data_source_path, "hypernetwork_form", "nodes", f"{dataset_name}.txt")
     input_2 = os.path.join(data_source_path, "hypernetwork_form", "edges", f"{dataset_name}.txt")
     output1_file = os.path.join(data_source_path, "poset_complex", "nodes", f"{dataset_name}.txt")
@@ -34,20 +35,25 @@ def process_and_save_poset(data_source,  dataset_name):
     with open(input_1,'r') as f:
         count = 0
         for line in f:
-            nodes[count] = {int(line.strip())}
+            nodes[count] = {int(count + 1)}
+            # nodes[count] = {int(line.strip())}
             k_values[count] = 1
-            output1.write(str(count)+'\n')
+            output1.write(str(count + 1)+'\n')
             output4.write(str(k_values[count])+'\n')
             count+=1
+
     with open(input_2,'r') as f:
+        print(f"first hyperedge as node index:", count)
         for line in f:
-            nodes[count] = set(map(int,line.split()))
+            # if commas and not spaces
+            nodes[count] = set(map(int, re.split(r'[,\s]+', line.strip()))) # say 1 2 4
+
             k_values[count] = len(nodes[count])
-            output1.write(str(count)+'\n')
+            output1.write(str(count+1)+'\n')
             output4.write(str(k_values[count])+'\n')
 
             #added by me
-            output6.write(f"{count} : {','.join(map(str, sorted(nodes[count])))}\n")
+            output6.write(f"{count+1} : {','.join(map(str, sorted(nodes[count])))}\n")
             count+=1
 
     print('%fs\tGenerating poset complex'%(time.time()-start))
@@ -55,7 +61,7 @@ def process_and_save_poset(data_source,  dataset_name):
     k_max = max(k_values.values())
     hyperedges = {k:[i for i,j in k_values.items() if j == k] for k in range(1,k_max+1)}
 
-    parent = [set()  for i in nodes]
+    parent = [set() for i in nodes]
     print('%fs\tSize of parent list: %dbytes'%(time.time()-start,sys.getsizeof(parent)))
 
     for k in range(k_max,1,-1):
@@ -72,12 +78,12 @@ def process_and_save_poset(data_source,  dataset_name):
         new_edges = set()
         faces = set()
         for j in val:
-            output3.write(str(i)+'\t'+str(j)+'\n')
+            output3.write(str(i+1)+'\t'+str(j+1)+'\n')
             for k in parent[j]:
                 new_edges.add((i,k))
                 faces.add((i,j,k))
-        for item in new_edges: output3.write(str(item[0])+'\t'+str(item[1])+'\n')
-        for item in faces: output5.write(str(item[0])+'\t'+str(item[1])+ '\t' + str(item[2])+'\n')
+        for item in new_edges: output3.write(str(item[0]+1)+'\t'+str(item[1]+1)+'\n')
+        for item in faces: output5.write(str(item[0]+1)+'\t'+str(item[1]+1)+ '\t' + str(item[2]+1)+'\n')
 
     output1.close()
     output3.close()

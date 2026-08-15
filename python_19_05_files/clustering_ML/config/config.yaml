@@ -4,7 +4,7 @@ data:
 
 model:
   name: "clustering"
-  curvature_form: "OR MMOT"
+  curvature_form: "Forman"
   internal_measure: "modularity"
   modularity_type: "linear"
   external_measure: "NMI"

@@ -71,8 +71,8 @@ def process_and_save_dual_complexes(data_source,  dataset_name):
                 if len(sharing_simplices) > 1:
                     # Connect any pair of simplices sharing this face
                     for u, v in combinations(sharing_simplices, 2):
-                        # Write the edge exactly as requested: [vertices_A], [vertices_B]
-                        edge_file.write(f"{u}, {v}\n")
+                        # Write the edge exactly as requested: [vertices_A]:[vertices_B]
+                        edge_file.write(f"{u}:{v}\n")
                         edge_count += 1
                         
         print(f" -> Saved nodes to: {nodes_filename}")

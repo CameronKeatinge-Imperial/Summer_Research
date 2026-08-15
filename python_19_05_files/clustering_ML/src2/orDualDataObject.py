@@ -116,26 +116,22 @@ class OllivierRicciDualDataObject(DataObject):
 
     def hypernetwork_nodes_curv(self,hyperedge):
 
-        all_keys_union = set().union(*hyperedge.keys())
-        #this gets all the node
-        node_curvature = {}
+        #all_keys_union = set().union(*hyperedge.keys())
 
-        '''
-        for each k in all_keys_union:
-            for each j in hyperedge.keys():
-                if k in the set j:
-                    add to node_curvature[k]
-
-        for k in all_keys_union:
-            node_curvature[k] = 0
-            for j in hyperedge.keys():
-                if k in j:
-                    node_curvature[k] += hyperedge[j]
-        '''
         node_curvature = {}
-        for j, v in hyperedge.items():
-            for k in j:
-                node_curvature[k] = node_curvature.get(k, 0) + v
+        n_defined = {}
+        for members, v in hyperedge.items():
+            for k in members:
+                node_curvature.setdefault(k, 0.0)
+                n_defined.setdefault(k, 0)
+                if v == v:                    # False only for NaN
+                    node_curvature[k] += v
+                    n_defined[k] += 1
+
+        for k, count in n_defined.items():
+            if count == 0:
+                #maybe change this to zero, as for the nodes themselves
+                node_curvature[k] = float("nan")
 
         return node_curvature
 

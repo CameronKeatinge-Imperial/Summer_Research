@@ -68,9 +68,9 @@ class DualNetworkObject():
             ]
 
             edges_in_dual = self.hyperedge_to_node_dual_edge_transform(hyperedge_edges)
-            edges_in_dual = self.map_edge_to_dependent_node(hyperedge_edges)
-            if edges_in_dual != None:
-                G.add_edges_from(e for e in edges_in_dual if len(e) >= 2)
+            # populates self.edge_dependent_node as a side effect, returns nothing
+            self.map_edge_to_dependent_node(hyperedge_edges)
+            G.add_edges_from(e for e in edges_in_dual if len(e) >= 2)
 
         return G
 
@@ -158,11 +158,13 @@ class DualNetworkObject():
                 for a in u_support
             ], dtype=float)
 
-            transport_plan = ot.sinkhorn(
-                np.array(u_mass), np.array(v_mass),
-                cost_matrix, reg=0.01
-            )
-            w1_distance = np.sum(transport_plan * cost_matrix)
+            #transport_plan = ot.sinkhorn(
+            #    np.array(u_mass), np.array(v_mass),
+            #    cost_matrix, reg=0.01
+            #)
+
+            #w1_distance = np.sum(transport_plan * cost_matrix)
+            w1_distance = ot.emd2(np.array(u_mass),  np.array(v_mass), cost_matrix)
 
             edge_curvature[edge] = 1 - w1_distance
 
@@ -178,18 +180,17 @@ class DualNetworkObject():
         for node in network.nodes():
             key = self.int_to_hyperedge[node]
             if key not in node_curvature:
-                node_curvature[key] = 0
+                node_curvature[key] = float("nan")
 
         return node_curvature
 
-# DO I NEED THIS
-def neighbour_distribution(node, neighbors, alpha):
-    '''
-    Standard ORC mass distribution: alpha on self, (1-alpha) split
-    uniformly among neighbors.
-    '''
-    if not neighbors:
-        return [1.0]  # isolated node, all mass on itself
-    mass = [alpha] + [(1 - alpha) / len(neighbors)] * len(neighbors)
-    return mass
-
+    @staticmethod
+    def neighbour_distribution(node, neighbors, alpha):
+        '''
+        Standard ORC mass distribution: alpha on self, (1-alpha) split
+        uniformly among neighbors.
+        '''
+        if not neighbors:
+            return [1.0]  # isolated node, all mass on itself
+        mass = [alpha] + [(1 - alpha) / len(neighbors)] * len(neighbors)
+        return mass

@@ -1,8 +1,8 @@
 data:
   data_source_type: "synthetic_data"
-  hypernetwork_name: "id_1"
+  hypernetwork_name: "id_6"
 
 model:
   measure: "curvature"
-  curvature_form: "OR Dual"
+  curvature_form: "OR_MMOT"
   for_nodes: "Y"

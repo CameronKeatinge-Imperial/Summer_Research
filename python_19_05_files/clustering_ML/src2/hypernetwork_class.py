@@ -191,8 +191,9 @@ class HypernetworkObject():
         for d, count in sizes.items():
             Pd = count / total_edges
             expected += Pd * self._expected_chi(d, p)
- 
-        return observed - expected
+
+        return (observed / self._total_edges if self._total_edges else 0.0) - expected
+        #return observed - expected
  
     def _chi(self, d, c):
         """Edge-contribution function, per strict/majority/linear form."""

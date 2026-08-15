@@ -5,8 +5,8 @@ from src2.orMMOTDataObject import OllivierRicciMMOTDataObject
 
 REGISTRY = {
     "Forman": FormanRicciDataObject,
-    "OR Dual": OllivierRicciDualDataObject,
-    "OR MMOT": OllivierRicciMMOTDataObject,
+    "OR_Dual": OllivierRicciDualDataObject,
+    "OR_MMOT": OllivierRicciMMOTDataObject,
 
 }
 
