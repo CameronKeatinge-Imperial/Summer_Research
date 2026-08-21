@@ -7,8 +7,6 @@ import numpy as np
 class DataObject(ABC):
     def __init__(self,hypernetwork_location,network_location,hyp_key_file):
         self.construct_network_and_hypernetwork(hypernetwork_location,network_location)
-        self.hyperedge_queue = PriorityQueue()
-        
         self.modularity_iters = []   # Tracks modularity over iterations
         self.best_partition = []
         self.best_modularity = -0.5 #lowest theoretical val
@@ -19,7 +17,6 @@ class DataObject(ABC):
         self.target_num_clusters = target_no_clusters
         self.max_iter = target_no_clusters * max_iter_multiple
         '''
-
 
     @abstractmethod
     def initialise_curvature(self):
@@ -33,11 +30,12 @@ class DataObject(ABC):
     def hyperedge_removal(self):
         pass
 
-    def assess_clustering(self, target_clusters_number):
+    def assess_clustering(self, optimal_cluster_number, greedy_clusters_number):
         #self.network_obj.hyperedge_removal()
         #temp_partitions = self.hypernetwork_obj.get_partitions()
         
-        temp_partitions = self.hypernetwork_obj.run_iteration(target_clusters_number, size_by="nodes")
+        temp_partitions = self.hypernetwork_obj.run_iteration(greedy_clusters_number, size_by="nodes")
+        temp_partitions = self.hypernetwork_obj.optimal_attach_clusters(temp_partitions,optimal_cluster_number)
         self.number_of_clusters = len(temp_partitions)
         temp_modularity = self.hypernetwork_obj.calculate_modularity(temp_partitions)
         self.review_new_modularity(temp_partitions, temp_modularity)   
@@ -46,10 +44,8 @@ class DataObject(ABC):
     def review_new_modularity(self,current_partition,current_modularity):
         self.modularity_iters.append(current_modularity)
         if current_modularity > self.best_modularity:
-                self.best_modularity = current_modularity
-                self.best_partition = current_partition
-                #print(f"number of partitions", len(current_partition))
-                #print(current_modularity)
+            self.best_modularity = current_modularity
+            self.best_partition = current_partition
         
     @abstractmethod
     def construct_network_and_hypernetwork():
@@ -63,6 +59,34 @@ class DataObject(ABC):
         pass
     #need to operate self.posetNetworkClass in here .. maybe in frDataObject
 
+    def cluster_size_terminate(self, target_cluster_no):
+        '''
+        Conditions for termination
+        '''
+        if target_cluster_no < 2:
+            raise ValueError("target_cluster_no must be at least 2")
+
+        clusters = self.hypernetwork_obj.get_partitions()
+        partition = [set(c) for c in clusters]
+
+        # Descending, so "largest" is [0] and "n largest" is [:n]
+        sizes = sorted(
+            (self.hypernetwork_obj._cluster_size(c, "nodes") for c in clusters),
+            reverse=True,
+        )
+
+        total = sum(sizes)
+        if total == 0:
+            raise ValueError("total cluster size is zero")
+        frac = [s / total for s in sizes]
+
+        if frac[0] < 1 / (target_cluster_no - 1):
+            print(f"Terminating due to largest cluster less than size 1 / ", (target_cluster_no - 1))
+            return True
+        if sum(frac[:(target_cluster_no+1)]) < (target_cluster_no - 1) / (target_cluster_no):
+            print(f"Terminating due to ",(target_cluster_no+1), "largest clusters less than size ", (target_cluster_no - 1), " / ", target_cluster_no)
+            return True
+        return False
 
 #translating between hyperedges and objects in the network decomposition?
 class MappingOfHyperedges:
@@ -93,28 +117,5 @@ class MappingOfHyperedges:
     def node_to_hyperedge_map(self, label1):
         return self._to_spec2[label1]
 
-
-class PriorityQueue:
-    def __init__(self):
-        # Initialize an empty list to serve as the heap
-        self._queue = []
-
-    def push(self, score, node):
-        """Pushes a new (score, node) tuple onto the heap."""
-        heapq.heappush(self._queue, (score, node))
-
-    def push_mult(self, pairs):
-        """Pushes an array of (score, node) pairs onto the heap."""
-        for score, node in pairs:
-            heapq.heappush(self._queue, (score, node))
-
-    def extract_lowest_score(self):
-        """Pops and returns the (score, node) tuple with the lowest score."""
-        # Note: Your algorithm checks if it's empty before calling this, 
-        # so we don't need to handle IndexError here unless you want to be extra safe.
-        return heapq.heappop(self._queue)
-
-    def is_empty(self):
-        """Returns True if the queue is empty, False otherwise."""
-        return len(self._queue) == 0
-    
+    def get_node_to_hyp_map(self):
+        return self._to_spec2

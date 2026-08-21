@@ -6,6 +6,7 @@ from src2.data_object import DataObject
 from src2.hypernetwork_class import HypernetworkObject
 from src2.dualNetworkClass import DualNetworkObject
 from src.create_dual_networks import process_and_save_dual_complexes
+from src2.queue_object import PriorityQueue
 
 class OllivierRicciDualDataObject(DataObject):
     def __init__(self,hypernetwork_location,network_location,extra=0):
@@ -14,6 +15,8 @@ class OllivierRicciDualDataObject(DataObject):
         self.hypernetwork_location = hypernetwork_location
         self.hypernetwork_obj = HypernetworkObject(hypernetwork_location)
         self.network_obj = DualNetworkObject(network_location)
+        self.hyperedge_queue = PriorityQueue()        
+
 
     def construct_network_and_hypernetwork(self,hyp_loc,net_loc):
         '''

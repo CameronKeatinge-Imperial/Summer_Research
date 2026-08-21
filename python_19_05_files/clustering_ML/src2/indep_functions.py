@@ -86,8 +86,6 @@ def n_step_greater_than_k_neighbourhood_nodes(graph, a, b, inner_set=None, centr
     
     return outer_set
 
-
-
 def calculate_modularity_ext(hypergraph_object, current_partitions, modularity_param):
     '''
     IF THIS FUNCTION USES A hnx OBJECT THAT COULD BE FINE, AS USES THE SAME ONE THROUGHOUT
@@ -111,3 +109,12 @@ def calculate_modularity_ext(hypergraph_object, current_partitions, modularity_p
     modularity_score = hmod.modularity(hypergraph_object, current_partitions, wdc=chosen_wdc_function)
     #print(f"modularity_score in external function",modularity_score)
     return modularity_score
+
+
+def cardinality_distribution(H, max_card):
+    """Proportion of hyperedges of each cardinality, as a length-max_card array."""
+    sizes = H.edges.size.asnumpy().astype(int)
+    if sizes.size == 0:
+        return np.zeros(max_card)
+    counts = np.bincount(sizes, minlength=max_card)
+    return (counts / counts.sum())[:max_card]

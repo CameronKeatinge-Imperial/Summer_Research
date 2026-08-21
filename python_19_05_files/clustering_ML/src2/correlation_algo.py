@@ -30,7 +30,7 @@ class measuresClass():
         #this object can now be referenced
         self.configNavigator = NetworkProcessor(config_obj)
         data_obj = get_model_type(config_obj['model']['curvature_form'])
-        my_data = data_obj(self.configNavigator.files_for_hypernetwork(),self.configNavigator.files_for_network(),self.configNavigator.hyperedge_key_file())
+        my_data = data_obj(self.configNavigator.files_for_hypernetwork(),self.configNavigator.files_for_network(),self.configNavigator.hyperedge_key_file(),"None")
         #once the data object is built, just go straight to some calculation
         self.my_data = my_data
         return my_data.return_init_curvature()

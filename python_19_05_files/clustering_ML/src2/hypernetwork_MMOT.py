@@ -1,29 +1,14 @@
 """
 MMOT hypergraph curvature.
 
-This module implements steps A1-A8 of the efficiency plan:
+Used Generative Tools to help with optimisation
 
-  A1  barycentre cost computed as (K o C) @ v instead of an n x n x N tensor
-  A2  `reg` rescaled against the integer distance quantum (default 0.5, was 0.05)
-  A3  pairwise distances computed on the induced subgraph of a small ball
-      around the support, not by a whole-graph Dijkstra
-  A4  support construction by frontier expansion; nothing of size |V| allocated
-  A5  K and K o C built by lookup table over the integer distance alphabet;
-      K's symmetry used to drop the transpose in the IBP loop
-  A6  disconnected supports detected and handled before reaching the solver
-  A7  hot loops driven by plain dicts; xgi used only as an import/export format
-  A8  optional process pool across hyperedges (opt-in, see `n_jobs`)
-
-Incremental state maintenance after a hyperedge removal (co-occurrence counts,
-decremental distances, dirty-set propagation, lazy priority queue) is NOT
-implemented here. `remove_hyperedge` marks the state dirty and the next
-curvature computation rebuilds it in full.
+Shared topology/modularity code lives in
+`src2.hypernetwork_base.BaseHypernetworkObject`.
 """
 
-from collections import Counter
 from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass
-from math import comb
 import os
 
 import numpy as np
@@ -31,8 +16,7 @@ import scipy.sparse as sp
 import ot
 import xgi
 from scipy.sparse.csgraph import connected_components, dijkstra
-
-from src2.indep_functions import calculate_modularity_ext
+from src2.hypernetwork_base import BaseHypernetworkObject
 
 # distance code used for "further apart than `radius`" in the uint8 blocks
 UNREACHABLE = 255 #replacement for infinity
@@ -83,12 +67,6 @@ def _bfs_ball(indptr, indices, source_idx, depth):
 class HypergraphDistance:
     """
     BFS distances on the clique expansion, capped at `radius`.
-
-    A3: a block over a node set U is computed on the induced subgraph of the
-    ball of radius floor(R/2) around U, which is exact. For u, v in U joined by
-    a shortest path p_0..p_L with L <= R, the node p_i satisfies d(p_i, u) <= i
-    and d(p_i, v) <= L - i, so min(i, L-i) <= floor(R/2) -- every such path
-    lies inside that ball.
     """
 
     def __init__(self, A, node_to_idx, idx_to_node, radius=5):
@@ -124,7 +102,6 @@ class HypergraphDistance:
         return np.inf if d == UNREACHABLE else float(d)
 
     def submatrix(self, U):
-        """uint8 |U|x|U| block, rows/cols in the order of U."""
         return self._block([self.node_to_idx[u] for u in U])
 
 
@@ -245,6 +222,7 @@ def ibp_barycenter_with_costs(A, C, reg, weights, maxiter=500, tol=1e-6,
                               K=None, M=None):
     """
     Iterative Bregman projection barycentre.
+    Convergence copied from POT package
 
     K and M = K o C may be supplied by the caller (built by lookup table, A5).
     The final cost block is (u * (M @ v)).sum(axis=0) -- algebraically the same
@@ -262,12 +240,11 @@ def ibp_barycenter_with_costs(A, C, reg, weights, maxiter=500, tol=1e-6,
 
     eps = 1e-300
     u = np.ones((n, N))
-    v = np.array(A, dtype=float, copy=True)
     beta = np.full(n, 1.0 / n)
-
+    Ku = K @ u
     for _ in range(maxiter):
         # K is symmetric (C is), so K.T @ u is just K @ u (A5)
-        v = A / np.maximum(K @ u, eps)
+        v = A / np.maximum(Ku, eps)
         Kv = K @ v
         log_beta = (np.log(np.maximum(Kv, eps)) * weights).sum(axis=1)
         beta_new = np.exp(log_beta)
@@ -286,16 +263,6 @@ def ibp_barycenter_with_costs(A, C, reg, weights, maxiter=500, tol=1e-6,
     costs = (u * (M @ v)).sum(axis=0)
     return beta, costs
 
-
-def lp_barycenter_with_costs(A, C, weights):
-    """Exact LP barycentre. `C` must be finite (capped, not inf)."""
-    C = np.ascontiguousarray(C, dtype=float)
-    beta = ot.lp.barycenter(A, C, weights)
-    N = A.shape[1]
-    costs = np.array([ot.emd2(A[:, k], beta, C) for k in range(N)])
-    return beta, costs
-
-
 # ----------------------------------------------------------------------
 # process pool worker (A8)
 # ----------------------------------------------------------------------
@@ -313,7 +280,6 @@ def _worker_init(edge_to_nodes, nodes, params, blas_threads=1):
     _WORKER = MMOTHypernetworkObject.__new__(MMOTHypernetworkObject)
     _WORKER._install_working_state(edge_to_nodes, nodes)
     _WORKER.itertative_H = None
-    _WORKER.hnx_initialHypernetwork = None
     _WORKER.last_removed_hyp_members = None
     _WORKER.additional_parameters(**params)
     _WORKER._build_state()
@@ -324,18 +290,9 @@ def _worker_edge(eid):
 
 
 
-class MMOTHypernetworkObject():
+class MMOTHypernetworkObject(BaseHypernetworkObject):
     def __init__(self, file_in):
-        self.initialHypernetwork = self.hypernetwork_from_files(file_in)
-        self._install_working_state(self._initial_edge_to_nodes, self._nodes)
-        # independent copy: removals must not mutate the baseline
-        self.itertative_H = xgi.Hypergraph(
-            {eid: set(m) for eid, m in self._initial_edge_to_nodes.items()}
-        )
-        self.hnx_initialHypernetwork = None
-        self.previous_partition = None
-        self.previous_modularity = None
-        self.last_removed_hyp_members = None
+        super().__init__(file_in)
         self.additional_parameters()
 
     def additional_parameters(self, reg: float = 0.1, maxiter: int = 500,
@@ -371,67 +328,8 @@ class MMOTHypernetworkObject():
                     lazy_support=self.lazy_support, radius=self.radius,
                     alpha=self.alpha, n_jobs=1)
 
-    def hypernetwork_from_files(self, file):
-        print("reading hypergraph")
-        edge_dict = {}
-        self.node_to_edge_id_map = {}
-        file = file[0]
-
-        with open(file, 'r') as f:
-            for edge_id, line in enumerate(f):
-                stripped = line.strip()
-                if not stripped:
-                    continue
-                try:
-                    nodes_set = set(int(n) for n in stripped.replace(",", " ").split())
-                except ValueError:
-                    continue
-                if not nodes_set:
-                    continue
-
-                edge_name = f"e{edge_id}"
-                edge_dict[edge_name] = nodes_set
-                sorted_nodes = tuple(sorted(nodes_set))
-                self.node_to_edge_id_map[sorted_nodes] = edge_name
-
-        self._initial_edge_to_nodes = {
-            eid: frozenset(members) for eid, members in edge_dict.items()
-        }
-        self._nodes = sorted({n for m in edge_dict.values() for n in m})
-
-        self.initialHypernetwork = xgi.Hypergraph(edge_dict)
-        return self.initialHypernetwork
-
-    def _install_working_state(self, edge_to_nodes, nodes):
-        self._edge_to_nodes = {
-            eid: frozenset(members) for eid, members in edge_to_nodes.items()
-        }
-        self._nodes = sorted(nodes)
-        self._node_to_edges = {n: set() for n in self._nodes}
-        for eid, members in self._edge_to_nodes.items():
-            for n in members:
-                self._node_to_edges[n].add(eid)
-
     def return_edge_dict(self):
         return dict(self._edge_to_nodes)
-
-
-    def remove_hyperedge(self, hyperedge_nodes):
-        hyperedge = self.hyperedge_to_edge_id(hyperedge_nodes)
-        if hyperedge is None or hyperedge not in self._edge_to_nodes:
-            print(f"[Warning] Could not find a hyperedge with exactly these nodes: {hyperedge_nodes}")
-            return
-
-        print(f"Removing hyperedge {hyperedge} containing nodes {hyperedge_nodes}")
-        members = self._edge_to_nodes.pop(hyperedge)
-        self.last_removed_hyp_members = set(members)
-
-        for n in members:
-            self._node_to_edges[n].discard(hyperedge)
-
-        self.itertative_H.remove_edge(hyperedge)
-        self._state_dirty = True
-        self._build_modularity_invariants()
 
     def update_neighbourhood_scores(self, removed_nodes=None) -> list:
         """
@@ -455,33 +353,6 @@ class MMOTHypernetworkObject():
             self._build_state()
 
         return [[eid, self.compute_edge(eid).curvature] for eid in sorted(affected)]
-
-    def hyperedge_to_edge_id(self, nodes):
-        try:
-            if nodes in self._edge_to_nodes:
-                return nodes
-        except TypeError:
-            pass
-
-        if isinstance(nodes, str):
-            try:
-                int_nodes = [int(n.strip()) for n in nodes.split(',')]
-            except ValueError:
-                print("ValError fail")
-                return None
-            return self.node_to_edge_id_map.get(tuple(sorted(int_nodes)))
-
-        if not isinstance(nodes, (list, tuple, set, frozenset)):
-            print("is_instance failure")
-            return None
-
-        try:
-            int_nodes = [int(n) for n in nodes]
-        except (ValueError, TypeError):
-            print("ValError fail")
-            return None
-
-        return self.node_to_edge_id_map.get(tuple(sorted(int_nodes)))
 
     # ---------------- state ----------------
 
@@ -531,12 +402,6 @@ class MMOTHypernetworkObject():
         else:
             codes = C_u8.astype(np.int64)
         return self._k_lut[codes], self._m_lut[codes], self._c_lut[codes]
-
-    def _build_modularity_invariants(self):
-        self._degrees = {n: len(es) for n, es in self._node_to_edges.items()}
-        self._vol_total = sum(self._degrees.values())
-        self._edge_size_hist = Counter(len(m) for m in self._edge_to_nodes.values())
-        self._total_edges = sum(self._edge_size_hist.values())
 
     # ---------------- curvature ----------------
 
@@ -618,15 +483,12 @@ class MMOTHypernetworkObject():
         K, M, C = self._kernels(C_u8)
         weights = np.full(N, 1.0 / N)
 
-        if n <= self.lp_threshold:
-            beta, costs = lp_barycenter_with_costs(A_marginals, C, weights)
-            method = "lp"
-        else:
-            beta, costs = ibp_barycenter_with_costs(
-                A_marginals, C, self.reg, weights,
-                maxiter=self.maxiter, tol=self.tol, K=K, M=M,
-            )
-            method = "ibp"
+
+        beta, costs = ibp_barycenter_with_costs(
+            A_marginals, C, self.reg, weights,
+            maxiter=self.maxiter, tol=self.tol, K=K, M=M,
+        )
+        method = "ibp"
 
         return EdgeBarycenterResult(
             edge_id=e, nodes=nodes_e, support=support,
@@ -689,132 +551,3 @@ class MMOTHypernetworkObject():
         }
         self.node_curvatures = node_curvatures
         return node_curvatures
-
-    ##############
-    # CLUSTERING #
-    ##############
-    def get_partitions(self):
-        print(f"Number of hyperedges: {len(self._edge_to_nodes)}")
-        components = list(xgi.connected_components(self.itertative_H))
-        print(f"Number of connected components: {len(components)}")
-        return components
-
-    def attach_partitions(self):
-        pass
-
-    def calculate_modularity(self, partitions):
-        new_modularity = calculate_modularity_ext(
-            self._hnx_initial(), partitions, self.wdc
-        )
-        print(f"new_modularity", new_modularity)
-        self.previous_modularity = new_modularity
-        return new_modularity
-
-    def _hnx_initial(self):
-        """HyperNetX view of the *initial* hypergraph, built on first use."""
-        if self.hnx_initialHypernetwork is None:
-            import hypernetx as hnx
-            self.hnx_initialHypernetwork = hnx.Hypergraph(
-                {eid: set(m) for eid, m in self._initial_edge_to_nodes.items()}
-            )
-        return self.hnx_initialHypernetwork
-
-    def get_disconnected_partitions(self):
-        components = [set(cc) for cc in xgi.connected_components(self.itertative_H)]
-        print(f"Number of disconnected components", len(components))
-        return components
-
-    def cluster_contribution(self, cluster):
-        return self._compute_contribution(frozenset(cluster))
-
-    def score_partitions(self, partitions):
-        return {frozenset(p): self.cluster_contribution(p) for p in partitions}
-
-    def _compute_contribution(self, cluster):
-        if self._degrees is None:
-            self._build_modularity_invariants()
-
-        cluster = set(cluster)
-
-        observed = 0.0
-        for members in self._edge_to_nodes.values():
-            observed += self._chi(len(members), len(members & cluster))
-
-        vol_cluster = sum(self._degrees.get(n, 0) for n in cluster)
-        p = vol_cluster / self._vol_total if self._vol_total else 0.0
-
-        expected = 0.0
-        if self._total_edges:
-            for d, count in self._edge_size_hist.items():
-                expected += (count / self._total_edges) * self._expected_chi(d, p)
-
-        return (observed / self._total_edges if self._total_edges else 0.0) - expected
-        #return observed - expected
-
-    def _chi(self, d, c):
-        if self.wdc == "strict":
-            return 1.0 if c == d else 0.0
-        if self.wdc == "majority":
-            return 1.0 if c > d / 2 else 0.0
-        if self.wdc == "linear":
-            return (2 * c - d) / d if c > d / 2 else 0.0
-        raise ValueError(f"Unknown wdc form: {self.wdc}")
-
-    def _expected_chi(self, d, p):
-        if self.wdc == "strict":
-            return p ** d
-        total = 0.0
-        for c in range(d + 1):
-            prob = comb(d, c) * (p ** c) * ((1 - p) ** (d - c))
-            total += prob * self._chi(d, c)
-        return total
-
-    def _cluster_size(self, cluster, size_by="nodes"):
-        if size_by == "nodes":
-            return len(cluster)
-        if size_by == "volume":
-            if self._degrees is None:
-                self._build_modularity_invariants()
-            return sum(self._degrees.get(n, 0) for n in cluster)
-        raise ValueError(f"Unknown size_by: {size_by}")
-
-    def attach_clusters(self, partition, target_number, size_by="nodes"):
-        partition = [set(c) for c in partition]
-
-        while len(partition) > target_number:
-            s_idx = min(
-                range(len(partition)),
-                key=lambda i: self._cluster_size(partition[i], size_by),
-            )
-            s = partition[s_idx]
-
-            host_idxs = sorted(
-                (i for i in range(len(partition)) if i != s_idx),
-                key=lambda i: self._cluster_size(partition[i], size_by),
-                reverse=True,
-            )[:target_number]
-
-            best_idx, best_delta = None, float("-inf")
-            s_contrib = self.cluster_contribution(s)
-            for h in host_idxs:
-                host = partition[h]
-                merged = host | s
-                delta = (
-                    self.cluster_contribution(merged)
-                    - self.cluster_contribution(host)
-                    - s_contrib
-                )
-                if delta > best_delta:
-                    best_delta, best_idx = delta, h
-
-            partition[best_idx] = partition[best_idx] | s
-            del partition[s_idx]
-
-        return partition
-
-    def run_iteration(self, target_number, size_by="nodes"):
-        partitions = self.get_disconnected_partitions()
-        self.score_partitions(partitions)
-        if len(partitions) > target_number:
-            partitions = self.attach_clusters(partitions, target_number, size_by)
-        return partitions
