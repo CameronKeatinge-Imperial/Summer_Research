@@ -2,12 +2,13 @@ from src.iterative_clustering import StatisticalModelTemplate
 from src2.frDataObject import FormanRicciDataObject
 from src2.orDualDataObject import OllivierRicciDualDataObject
 from src2.orMMOTDataObject import OllivierRicciMMOTDataObject
+from src2.randomDataObject import randomDataObject
 
 REGISTRY = {
     "Forman": FormanRicciDataObject,
     "OR_Dual": OllivierRicciDualDataObject,
     "OR_MMOT": OllivierRicciMMOTDataObject,
-
+    "random": randomDataObject,
 }
 
 def get_model_type(name: str):

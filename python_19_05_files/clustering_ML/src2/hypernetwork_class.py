@@ -1,12 +1,4 @@
-"""
-Plain hypernetwork object: topology + memoized modularity clustering.
-
-Everything shared with the MMOT variant now lives in
-`src2.hypernetwork_base.BaseHypernetworkObject`.
-"""
-
 import xgi
-
 from src2.hypernetwork_base import BaseHypernetworkObject
 
 

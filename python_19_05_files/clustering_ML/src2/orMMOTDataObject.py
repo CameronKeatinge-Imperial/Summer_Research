@@ -63,9 +63,7 @@ class OllivierRicciMMOTDataObject(DataObject):
 
     def next_hyperedge_removal(self,target_distribution,hypernetwork_distribution):
         '''
-        Purpose: find hyperedge with the lowest curvature and remove
-        Returns: the network_node to be removed
-        NEED TO ADD GATE FOR PROPORTION OF HYPEREDGES
+        Node is actually a hyperedge here
         '''
         print(f"Target distribution", target_distribution)
         print(f"Current hypernetwork distribution", hypernetwork_distribution)

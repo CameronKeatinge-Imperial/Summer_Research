@@ -24,23 +24,29 @@ class measuresClass():
          #all the configurations here
         self.name = "A"
 
-    def performing_analysis(self,config_obj) -> Any:
+    def performing_analysis(self,config_obj) -> Any: 
         print("Analysing data")
-        
         #this object can now be referenced
         self.configNavigator = NetworkProcessor(config_obj)
         data_obj = get_model_type(config_obj['model']['curvature_form'])
         my_data = data_obj(self.configNavigator.files_for_hypernetwork(),self.configNavigator.files_for_network(),self.configNavigator.hyperedge_key_file(),"None")
         #once the data object is built, just go straight to some calculation
         self.my_data = my_data
+        if config_obj['model']['curvature_form'] == "OR_MMOT":
+            if config_obj['model']['ot_computation'] == "LP":
+                my_data.hypernetwork_obj.use_lp_param = True
         return my_data.return_init_curvature()
 
     def change_hyperedge_keys(self,input_dict):
         return self.my_data.change_hyperedge_keys(input_dict)
     
-    def save_dataframes(self,curv_type,measure_name,edge_dict,node_dict=None):
+    def save_dataframes(self,curv_type,measure_name,lp_case,edge_dict,node_dict=None):
         #for edges
         file_name = curv_type + "_" + measure_name
+        if curv_type == "OR_MMOT":
+            if lp_case == "LP":
+                file_name = "LP_" + curv_type + "_" + measure_name
+
         self.configNavigator.save_dict_to_file(edge_dict,'hyperedge',file_name)
         #for nodes
         if not node_dict == None:

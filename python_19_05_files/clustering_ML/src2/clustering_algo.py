@@ -28,7 +28,10 @@ class algorithmClass():
         #create data object
         data_obj = get_model_type(config_obj['model']['curvature_form'])
         my_data = data_obj(self.configNavigator.files_for_hypernetwork(),self.configNavigator.files_for_network(),self.configNavigator.hyperedge_key_file(),self.target_dist)
-        #my_data.model_parameters
+        if config_obj['model']['curvature_form'] == "OR_MMOT":
+            if config_obj['model']['ot_computation'] == "LP":
+                my_data.hypernetwork_obj.use_lp_param = True
+
         terminate_condition = False
         for i in range(self.max_iter):
             # if my_data.number_of_clusters < self.maximum_clusters:

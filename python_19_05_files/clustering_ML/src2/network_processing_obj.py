@@ -25,6 +25,8 @@ class NetworkProcessor:
             self.network_decomposition = 'dual_networks'
         if self.curvature_discretisation == 'OR_MMOT':
             self.network_decomposition = None
+        if self.curvature_discretisation == 'random':
+            self.network_decomposition = None
         self.initial_check_hypernetwork_files()
 
     def initial_check_hypernetwork_files(self):
@@ -133,6 +135,8 @@ class NetworkProcessor:
         return paths_search
         '''
         if self.curvature_discretisation == 'OR_MMOT':
+            return None
+        if self.curvature_discretisation == 'random':
             return None
         else:
             return os.path.join(self.base_dir, self.source, self.network_decomposition, "hyperedge_node_key", f"{self.dataset_name}.txt")

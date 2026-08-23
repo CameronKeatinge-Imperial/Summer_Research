@@ -11,6 +11,7 @@ from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass
 import os
 
+import warnings
 import numpy as np
 import scipy.sparse as sp
 import ot
@@ -218,11 +219,11 @@ def get_local_matrix_for_calc(nodes_e, measures, A, node_to_idx, idx_to_node,
 # barycentre solvers
 # ----------------------------------------------------------------------
 
+
 def ibp_barycenter_with_costs(A, C, reg, weights, maxiter=500, tol=1e-6,
                               K=None, M=None):
     """
     Iterative Bregman projection barycentre.
-    Convergence copied from POT package
 
     K and M = K o C may be supplied by the caller (built by lookup table, A5).
     The final cost block is (u * (M @ v)).sum(axis=0) -- algebraically the same
@@ -240,11 +241,12 @@ def ibp_barycenter_with_costs(A, C, reg, weights, maxiter=500, tol=1e-6,
 
     eps = 1e-300
     u = np.ones((n, N))
+    v = np.array(A, dtype=float, copy=True)
     beta = np.full(n, 1.0 / n)
-    Ku = K @ u
+
     for _ in range(maxiter):
         # K is symmetric (C is), so K.T @ u is just K @ u (A5)
-        v = A / np.maximum(Ku, eps)
+        v = A / np.maximum(K @ u, eps)
         Kv = K @ v
         log_beta = (np.log(np.maximum(Kv, eps)) * weights).sum(axis=1)
         beta_new = np.exp(log_beta)
@@ -263,6 +265,35 @@ def ibp_barycenter_with_costs(A, C, reg, weights, maxiter=500, tol=1e-6,
     costs = (u * (M @ v)).sum(axis=0)
     return beta, costs
 
+def lp_barycenter_with_costs(A, C, weights=None, solver="highs-ds"):
+    """
+    Exact LP barycentre. Same contract as `ibp_barycenter_with_costs`:
+    returns (beta, costs) with costs[k] = <pi_k, C> for source k, unweighted.
+
+    Solves one joint LP over all N plans plus the free barycentre, so there is
+    no `reg` and no entropic blur. Cost is N*n^2 + n variables -- gate on n.
+    `highs-ds` (dual simplex) returns a vertex solution; `highs-ipm` returns the
+    analytic centre of the optimal face, which smears beta over ties.
+    """
+    n, N = A.shape
+    C = np.ascontiguousarray(C, dtype=float)
+    if not np.isfinite(C).all():
+        raise ValueError("LP barycentre requires a finite cost matrix")
+
+    beta, sol = ot.lp.barycenter(A, C, weights=weights, log=True, solver=solver)
+
+    if getattr(sol, "status", 0) != 0:
+        raise RuntimeError(f"LP barycentre did not solve: {getattr(sol, 'message', '')}")
+
+    # sol.x lays out the N plans row-major, then beta in the trailing n slots.
+    # sol.fun is the *weighted* objective; recover per-source costs to match IBP.
+    n2 = n * n
+    x = np.asarray(sol.x)
+    costs = np.array([
+        float(np.sum(x[k * n2:(k + 1) * n2].reshape(n, n) * C))
+        for k in range(N)
+    ])
+    return np.ascontiguousarray(beta), costs
 # ----------------------------------------------------------------------
 # process pool worker (A8)
 # ----------------------------------------------------------------------
@@ -289,21 +320,21 @@ def _worker_edge(eid):
     return eid, _WORKER.compute_edge(eid)
 
 
-
 class MMOTHypernetworkObject(BaseHypernetworkObject):
     def __init__(self, file_in):
         super().__init__(file_in)
         self.additional_parameters()
 
     def additional_parameters(self, reg: float = 0.1, maxiter: int = 500,
-                              tol: float = 1e-6, lp_threshold: int = 0,
+                              tol: float = 1e-6,
                               lazy_support: bool = False, radius: int = 5,
-                              alpha: float = 0.01, n_jobs: int = 1):
+                              alpha: float = 0.01, n_jobs: int = 1,
+                              lp_solver: str = "highs-ds",
+                              lp_strict: bool = False):
         self.wdc = "linear"
         self.reg = reg
         self.maxiter = maxiter
         self.tol = tol
-        self.lp_threshold = lp_threshold
         self.lazy_support = lazy_support
         self.radius = int(radius)
         self.alpha = alpha
@@ -321,10 +352,13 @@ class MMOTHypernetworkObject(BaseHypernetworkObject):
         self._degrees = None
         self._state_dirty = True
         self._sentinel_possible = self.radius < SAFE_RADIUS
+        self.lp_solver = lp_solver
+        self.lp_strict = lp_strict
+        self.use_lp_param = False
 
     def _tuning_params(self):
         return dict(reg=self.reg, maxiter=self.maxiter, tol=self.tol,
-                    lp_threshold=self.lp_threshold,
+                    lp_solver=self.lp_solver, lp_strict=self.lp_strict,
                     lazy_support=self.lazy_support, radius=self.radius,
                     alpha=self.alpha, n_jobs=1)
 
@@ -483,12 +517,39 @@ class MMOTHypernetworkObject(BaseHypernetworkObject):
         K, M, C = self._kernels(C_u8)
         weights = np.full(N, 1.0 / N)
 
+        # A sentinel means "unreachable". IBP encodes that as K=0 (forbidden);
+        # _c_lut caps it at R+1, which the LP would happily route through at
+        # finite cost. Different problems -- so refuse the LP if any survive.
+        has_sentinel = self._sentinel_possible and bool((C_u8 == UNREACHABLE).any())
+        use_lp = self.use_lp_param and not has_sentinel
 
+        method = "ibp"
+        if use_lp:
+            try:
+                beta, costs = lp_barycenter_with_costs(
+                    A_marginals, C, weights, solver=self.lp_solver,
+                )
+                method = "lp"
+            except Exception as exc:
+                if self.lp_strict:
+                    raise
+                warnings.warn(f"edge {e}: LP barycentre failed ({exc}); using IBP")
+                use_lp = False
+
+        if not use_lp:
+            beta, costs = ibp_barycenter_with_costs(
+                A_marginals, C, self.reg, weights,
+                maxiter=self.maxiter, tol=self.tol, K=K, M=M,
+            )
+
+        '''
+        before adding the snippet above
         beta, costs = ibp_barycenter_with_costs(
             A_marginals, C, self.reg, weights,
             maxiter=self.maxiter, tol=self.tol, K=K, M=M,
         )
         method = "ibp"
+        '''
 
         return EdgeBarycenterResult(
             edge_id=e, nodes=nodes_e, support=support,
@@ -498,6 +559,7 @@ class MMOTHypernetworkObject(BaseHypernetworkObject):
         )
 
     def compute_all(self) -> dict:
+        print(f"Using lp:", self.use_lp_param)
         self._build_state()
         edges = list(self._edge_to_nodes)
 
