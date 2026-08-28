@@ -4,13 +4,6 @@ import networkx as nx
 from src2.indep_functions import initialise_curvatures_forman_ricci, edge_forman_ricci, node_forman_ricci, n_step_greater_than_k_neighbourhood_nodes, n_step_neighbourhood_nodes, n_step_neighbourhood_nodes_from_edge
 
 class PosetNetworkObject():
-    '''
-    Need to change is_removed from considering every node to know only some are relevant
-    
-    #for edges, need mapping from edges to integers
-    #for nodes the same, means nodes can be NON-INTEGER values
-    WHEN NOT affecting/manipulating an array, use node, otherwise use node_mapping
-    '''
     def __init__(self,paths):
         '''
         Reason for having network_is_node_removed is for faster lookup

@@ -131,8 +131,8 @@ def generate_hsbm(
 
 
 if __name__ == "__main__":
-    edge =r"C:\Users\ckeat\github-projects\Summer_Research\python_19_05_files\clustering_ML\data\synthetic_data\hypernetwork_form\edges\uniform_cluster_id3.txt"
-    cluster =r"C:\Users\ckeat\github-projects\Summer_Research\python_19_05_files\clustering_ML\data\synthetic_data\true_clusters\uniform_cluster_id3.txt"
+    edge =r"MY_PATH\clustering_ML\data\synthetic_data\hypernetwork_form\edges\uniform_cluster_id3.txt"
+    cluster =r"MY_PATH\clustering_ML\data\synthetic_data\true_clusters\uniform_cluster_id3.txt"
 
     H, labels = generate_hsbm(
         n=1000, m=3, q=4,

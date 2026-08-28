@@ -1,6 +1,4 @@
 from src.data_processing import load_config
-from src.iterative_clustering import StatisticalModelTemplate
-from src.FR_subclass import FormanRicciClustering
 from src.data_processing import read_true_labels
 from src2.correlation_algo import measuresClass
 import time

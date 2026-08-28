@@ -42,14 +42,6 @@ class EvaluateClustering():
         return label
     
     def partitions_to_list(self, mapping=None):
-        '''
-        Convert self.predicted_clusters (list of 1-based index groups) into a
-        per-element label list.
-
-        If `mapping` is provided (typically the output of match_labelling_of_true),
-        each cluster is labelled with its matched true-group name.
-        Otherwise, falls back to assigning letters A, B, C, ... as before.
-        '''
         n = max(max(cluster) for cluster in self.predicted_clusters)
         group_labels = [""] * n
 
