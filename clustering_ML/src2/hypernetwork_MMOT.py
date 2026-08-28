@@ -2,9 +2,6 @@
 MMOT hypergraph curvature.
 
 Used Generative Tools to help with optimisation
-
-Shared topology/modularity code lives in
-`src2.hypernetwork_base.BaseHypernetworkObject`.
 """
 
 from concurrent.futures import ProcessPoolExecutor
@@ -41,12 +38,6 @@ class EdgeBarycenterResult:
 # ----------------------------------------------------------------------
 
 def _bfs_ball(indptr, indices, source_idx, depth):
-    """
-    Global indices within `depth` hops of any source, as a sorted int array.
-
-    Frontier expansion over the CSR arrays (A4). Touches only the edges inside
-    the ball -- nothing proportional to |V| is allocated.
-    """
     frontier = np.unique(np.asarray(source_idx, dtype=np.int64))
     visited = frontier
     for _ in range(int(depth)):
@@ -66,10 +57,6 @@ def _bfs_ball(indptr, indices, source_idx, depth):
 
 
 class HypergraphDistance:
-    """
-    BFS distances on the clique expansion, capped at `radius`.
-    """
-
     def __init__(self, A, node_to_idx, idx_to_node, radius=5):
         self.A = A.tocsr()
         self.node_to_idx = node_to_idx
@@ -80,7 +67,6 @@ class HypergraphDistance:
         self.indices = self.A.indices
 
     def _block(self, idx_U):
-        """uint8 |U|x|U| distance block over the given global indices."""
         idx_U = np.asarray(idx_U, dtype=np.int64)
         ball = _bfs_ball(self.indptr, self.indices, idx_U, self.radius // 2)
         sub = self.A[ball][:, ball]
@@ -107,14 +93,6 @@ class HypergraphDistance:
 
 
 def build_sparse_adjacency(edge_to_nodes, nodes=None):
-    """
-    Clique-expansion adjacency plus the co-occurrence count matrix.
-
-    Returns (A, W, node_to_idx, idx_to_node). W holds integer co-occurrence
-    counts (how many hyperedges contain both endpoints); A is its boolean
-    pattern. W is not used by the current path -- it is what an incremental
-    removal update would decrement instead of rebuilding.
-    """
     if nodes is None:
         nodes = {n for members in edge_to_nodes.values() for n in members}
     nodes_list = sorted(nodes)
@@ -186,10 +164,6 @@ def node_distributions(edge_to_nodes, node_to_edges, alpha=0.01):
 
 def get_local_matrix_for_calc(nodes_e, measures, A, node_to_idx, idx_to_node,
                               lazy=True):
-    """
-    Support for a hyperedge: its members, the supports of their measures, and
-    the 2-hop reachable set. Frontier expansion (A4) -- no |V|-sized arrays.
-    """
     base_support_nodes = set(nodes_e)
     for i in nodes_e:
         base_support_nodes.update(measures[i].keys())
@@ -222,14 +196,6 @@ def get_local_matrix_for_calc(nodes_e, measures, A, node_to_idx, idx_to_node,
 
 def ibp_barycenter_with_costs(A, C, reg, weights, maxiter=500, tol=1e-6,
                               K=None, M=None):
-    """
-    Iterative Bregman projection barycentre.
-
-    K and M = K o C may be supplied by the caller (built by lookup table, A5).
-    The final cost block is (u * (M @ v)).sum(axis=0) -- algebraically the same
-    as the old einsum over an n x n x N tensor, but O(n^2) memory and a single
-    BLAS gemm (A1).
-    """
     n, N = A.shape
 
     if K is None or M is None:
@@ -245,7 +211,6 @@ def ibp_barycenter_with_costs(A, C, reg, weights, maxiter=500, tol=1e-6,
     beta = np.full(n, 1.0 / n)
 
     for _ in range(maxiter):
-        # K is symmetric (C is), so K.T @ u is just K @ u (A5)
         v = A / np.maximum(K @ u, eps)
         Kv = K @ v
         log_beta = (np.log(np.maximum(Kv, eps)) * weights).sum(axis=1)
@@ -266,15 +231,6 @@ def ibp_barycenter_with_costs(A, C, reg, weights, maxiter=500, tol=1e-6,
     return beta, costs
 
 def lp_barycenter_with_costs(A, C, weights=None, solver="highs-ds"):
-    """
-    Exact LP barycentre. Same contract as `ibp_barycenter_with_costs`:
-    returns (beta, costs) with costs[k] = <pi_k, C> for source k, unweighted.
-
-    Solves one joint LP over all N plans plus the free barycentre, so there is
-    no `reg` and no entropic blur. Cost is N*n^2 + n variables -- gate on n.
-    `highs-ds` (dual simplex) returns a vertex solution; `highs-ipm` returns the
-    analytic centre of the optimal face, which smears beta over ties.
-    """
     n, N = A.shape
     C = np.ascontiguousarray(C, dtype=float)
     if not np.isfinite(C).all():
@@ -414,11 +370,6 @@ class MMOTHypernetworkObject(BaseHypernetworkObject):
         self._state_dirty = False
 
     def _build_luts(self):
-        """
-        A5: C takes values in {0..R} plus a sentinel, so K = exp(-C/reg) and
-        M = K o C have at most R+2 distinct entries each. Index a table rather
-        than calling exp on n^2 floats.
-        """
         R = self.radius
         d = np.arange(R + 1, dtype=float)
         k = np.exp(-d / self.reg)
@@ -438,12 +389,6 @@ class MMOTHypernetworkObject(BaseHypernetworkObject):
     # ---------------- curvature ----------------
 
     def _restrict_to_member_component(self, support, C_u8, nodes_e):
-        """
-        A6: the solver cannot handle a support that splits under the radius
-        cap. Drop support nodes outside the members' component; if the members
-        themselves span more than one component, report it rather than letting
-        zeros and NaNs propagate through IBP.
-        """
         finite = (C_u8 != UNREACHABLE)
         n_comp, labels = connected_components(
             sp.csr_matrix(finite), directed=False
@@ -573,9 +518,6 @@ class MMOTHypernetworkObject(BaseHypernetworkObject):
         return {e: self.compute_edge(e) for e in edges}
 
     def _compute_all_parallel(self, edges, n_jobs, blas_threads=1):
-        """A8: hyperedges are independent given fixed state."""
-        # cost is O(maxiter * n^2 * N); dispatch the expensive edges first
-        # so the stragglers overlap with the rest of the queue
         edges = sorted(edges, key=lambda e: -len(self._edge_to_nodes[e]))
 
         results = {}
@@ -590,14 +532,12 @@ class MMOTHypernetworkObject(BaseHypernetworkObject):
         return results
 
     def get_network_curvature(self) -> dict:
-        """Curvature for every hyperedge; also stored on self."""
         results = self.compute_all()
         self.edge_curvatures = {eid: r.curvature for eid, r in results.items()}
         self.edge_results = results
         return self.edge_curvatures
 
     def hypernetwork_nodes_curv(self) -> dict:
-        """Sum of incident hyperedge curvatures, per node."""
         if not hasattr(self, "edge_curvatures") or self.edge_curvatures is None:
             raise RuntimeError(
                 "self.edge_curvatures not found. Call get_network_curvature() "

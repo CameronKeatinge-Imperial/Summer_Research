@@ -1,6 +1,6 @@
 data:
   data_source_type: "synthetic_data"
-  hypernetwork_name: "uniform_cluster_id3"
+  hypernetwork_name: "ID_F"
 
 model:
   measure: "curvature"

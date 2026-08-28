@@ -1,6 +1,6 @@
 data:
   data_source_type: "synthetic_data"
-  hypernetwork_name: "cluster_id4"
+  hypernetwork_name: "cluster_id6_low_noise"
 
 model:
   name: "clustering"
@@ -10,5 +10,5 @@ model:
   external_measure: "both"
   target_distribution: "None" # "None" and [0.25,0.15,0.1]
   max_iterations: 5000
-  number_of_target_cluster: 2
+  number_of_target_cluster: 4
   ot_computation: "NA"
