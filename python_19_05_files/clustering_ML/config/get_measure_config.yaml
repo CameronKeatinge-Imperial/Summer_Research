@@ -1,9 +1,0 @@
-data:
-  data_source_type: "synthetic_data"
-  hypernetwork_name: "uniform_cluster_id3"
-
-model:
-  measure: "curvature"
-  curvature_form: "OR_MMOT"
-  ot_computation: "NA"
-  for_nodes: "Y"
