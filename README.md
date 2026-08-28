@@ -1,2 +1,2 @@
-# Summer_Research
-Curvature on hypernetworks
+# Summer Research
+Work for my Imperial College London MSc Statistics thesis.
